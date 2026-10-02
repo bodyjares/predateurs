@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banque d'exercices – M11-B / M15-C</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="site.js" data-racine=".." data-actif="banque"></script>
+<header class="bandeau">
+  <div class="page">
+    <p class="surtitre">Outils du coach</p>
+    <h1>Banque d'exercices</h1>
+    <p class="ecran">Technique, tactique individuelle et tactique collective, avec un diagramme pour chaque exercice. Clique sur un diagramme pour l'agrandir.</p>
+  </div>
+</header>
+<div class="page outil">
+
+<section class="filtres" aria-label="Filtres">
+  <label>Équipe
+    <select id="f-equipe">
+      <option value="">Toutes</option>
+      <option value="M11">M11-B</option>
+      <option value="M15">M15-C</option>
+    </select>
+  </label>
+  <label>Catégorie
+    <select id="f-categorie">
+      <option value="">Toutes</option>
+      <option value="T">Technique</option>
+      <option value="TI">Tactique individuelle</option>
+      <option value="TC">Tactique collective</option>
+    </select>
+  </label>
+  <label>Thème
+    <select id="f-theme"><option value="">Tous</option></select>
+  </label>
+  <label class="case"><input type="checkbox" id="f-demi"> Faisable en demi-glace</label>
+  <label class="case"><input type="checkbox" id="f-iq"> Décisionnel (IQ) seulement</label>
+  <label class="case"><input type="checkbox" id="f-systeme"> Lié au système seulement</label>
+  <label class="recherche">Recherche
+    <input type="search" id="f-texte" placeholder="ex. : sortie, 2c1, tir…">
+  </label>
+  <button type="button" onclick="window.print()">Imprimer la sélection</button>
+</section>
+
+<p id="compte" class="compte" aria-live="polite"></p>
+<main id="liste" class="cartes"></main>
+
+</div>
+
+<dialog id="zoom" class="zoom" aria-label="Diagramme agrandi">
+  <form method="dialog"><button aria-label="Fermer">✕ Fermer</button></form>
+  <h2 id="zoom-titre"></h2>
+  <div id="zoom-diagramme"></div>
+</dialog>
+
+<script src="exercices.js"></script>
+<script src="diagrammes-donnees.js"></script>
+<script src="diagrammes.js"></script>
+<script src="animation.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function remplirThemes() {
+  const themes = [...new Set(EXERCICES.flatMap((e) => e.themes))].sort((a, b) => a.localeCompare(b, "fr"));
+  for (const t of themes) $("f-theme").add(new Option(t, t));
+}
+
+function carte(e) {
+  const cat = CATEGORIES[e.categorie];
+  const equipes = e.equipes.map((q) => EQUIPES[q].nom).join(" · ");
+  const liste = (items) => items && items.length ? `<ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>` : "";
+  const diag = diagrammeDe(e.id);
+  return `
+  <article class="carte" style="--cat:${cat.couleur}; --cat-sombre:${cat.couleurSombre}">
+    <header>
+      <span class="pastille cat-${e.categorie}">${e.id} · ${cat.nom}</span>
+      ${e.iq ? '<span class="pastille iq">Décisionnel (IQ)</span>' : ""}
+      <h2>${e.nom}</h2>
+      <p class="meta">${e.duree} min · ${e.espace} · ${equipes}</p>
+      ${e.systeme ? `<p class="systeme">Système : ${e.systeme}</p>` : ""}
+    </header>
+    ${diag ? `<figure class="diagramme"><button type="button" class="agrandir" data-id="${e.id}" title="Agrandir le diagramme">${dessinerDiagramme(diag, { titre: e.nom })}</button></figure>` : ""}
+    <p class="ecran lien-editeur">${diag && (diag.trajets || []).length ? `<button type="button" class="lien animer" data-id="${e.id}">▶ Animer</button> · ` : ""}<a href="editeur-diagrammes.html#${e.id}">${diag ? "Modifier le diagramme" : "Dessiner le diagramme"}</a></p>
+    <p><strong>Objectif :</strong> ${e.objectif}</p>
+    <p><strong>Organisation :</strong> ${e.organisation}</p>
+    ${e.demi ? `<p class="adaptation"><strong>Adaptation demi-glace :</strong> ${e.demi}</p>` : ""}
+    <h3>Déroulement</h3>${liste(e.deroulement)}
+    <h3>Points clés</h3>${liste(e.pointsCles)}
+    ${e.progression && e.progression.length ? `<h3>Progression</h3>${liste(e.progression)}` : ""}
+  </article>`;
+}
+
+function afficher() {
+  const equipe = $("f-equipe").value;
+  const categorie = $("f-categorie").value;
+  const theme = $("f-theme").value;
+  const iq = $("f-iq").checked;
+  const demi = $("f-demi").checked;
+  const systeme = $("f-systeme").checked;
+  const texte = $("f-texte").value.trim().toLowerCase();
+
+  const resultats = EXERCICES.filter((e) =>
+    (!equipe || e.equipes.includes(equipe)) &&
+    (!categorie || e.categorie === categorie) &&
+    (!theme || e.themes.includes(theme)) &&
+    (!iq || e.iq) &&
+    (!demi || e.espace !== "Pleine glace" || e.demi) &&
+    (!systeme || e.systeme) &&
+    (!texte || JSON.stringify(e).toLowerCase().includes(texte))
+  );
+
+  $("liste").innerHTML = resultats.map(carte).join("") || "<p>Aucun exercice ne correspond aux filtres.</p>";
+  $("compte").textContent = `${resultats.length} exercice${resultats.length > 1 ? "s" : ""} sur ${EXERCICES.length}`;
+}
+
+remplirThemes();
+// Lien depuis la page d'une équipe (ex. : banque-exercices.html#M11) : présélectionner l'équipe
+if (EQUIPES[location.hash.slice(1)]) {
+  $("f-equipe").value = location.hash.slice(1);
+  $("f-demi").checked = EQUIPES[$("f-equipe").value].glace === "Demi-glace";
+}
+// Les M11 ont une demi-glace : cocher le filtre automatiquement
+$("f-equipe").addEventListener("input", () => { $("f-demi").checked = EQUIPES[$("f-equipe").value]?.glace === "Demi-glace"; });
+for (const id of ["f-equipe", "f-categorie", "f-theme", "f-demi", "f-iq", "f-systeme", "f-texte"]) {
+  $(id).addEventListener("input", afficher);
+}
+afficher();
+
+// Clic sur un diagramme : version agrandie avec le lecteur d'animation (« ▶ Animer » la fait jouer tout de suite)
+let lecteur = null;
+$("liste").addEventListener("click", (ev) => {
+  const b = ev.target.closest(".agrandir, .animer");
+  if (!b) return;
+  const e = EXERCICES.find((x) => x.id === b.dataset.id);
+  $("zoom-titre").textContent = `${e.id} – ${e.nom}`;
+  lecteur = AnimationDiagramme.creer($("zoom-diagramme"), diagrammeDe(e.id), { titre: e.nom, auto: b.classList.contains("animer") });
+  $("zoom").showModal();
+});
+$("zoom").addEventListener("click", (ev) => { if (ev.target === $("zoom")) $("zoom").close(); });
+$("zoom").addEventListener("close", () => { lecteur?.detruire(); lecteur = null; });
+</script>
+</body>
+</html>

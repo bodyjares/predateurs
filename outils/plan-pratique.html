@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planificateur de pratique – M11-B / M15-C</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="site.js" data-racine=".." data-actif="plan"></script>
+<header class="bandeau">
+  <div class="page">
+    <p class="surtitre ecran">Outils du coach</p>
+    <h1 id="titre-impression">Plan de pratique</h1>
+    <p class="ecran">Choisis tes exercices : le temps et les ratios de Hockey Québec sont calculés automatiquement. La feuille imprimée inclut le détail et le diagramme de chaque exercice.</p>
+  </div>
+</header>
+<div class="page outil">
+
+<section class="entete-plan" aria-label="Informations de la pratique">
+  <label>Équipe
+    <select id="equipe">
+      <option value="M11">M11-B</option>
+      <option value="M15">M15-C</option>
+    </select>
+  </label>
+  <label>Titre
+    <input id="titre" placeholder="Semaine 1 – Pratique 1">
+  </label>
+  <label>Date
+    <input id="date" type="date">
+  </label>
+  <label>Thème
+    <input id="theme" size="34" placeholder="ex. : Sortie de zone">
+  </label>
+  <label>Glace réelle, sans resurfaçage (min)
+    <input id="dureeGlace" type="number" min="20" max="120" value="50" style="width:5rem">
+  </label>
+  <label>Consignes / transitions (min)
+    <input id="consignes" type="number" min="0" max="30" value="5" style="width:5rem">
+  </label>
+</section>
+
+<div class="boutons ecran">
+  <label style="display:flex;gap:.4rem;align-items:center">Modèle
+    <select id="modele"><option value="">— Charger un modèle —</option></select>
+  </label>
+  <label style="display:flex;gap:.4rem;align-items:center">Mes plans
+    <select id="sauvegardes"><option value="">— Charger un plan enregistré —</option></select>
+  </label>
+  <button type="button" id="b-enregistrer">Enregistrer</button>
+  <button type="button" id="b-supprimer">Supprimer le plan enregistré</button>
+  <button type="button" id="b-exporter">Exporter (fichier)</button>
+  <button type="button" id="b-importer">Importer (fichier)</button>
+  <input type="file" id="fichier" accept="application/json" hidden>
+  <button type="button" id="b-nouveau">Nouveau plan</button>
+  <button type="button" class="principal" onclick="window.print()">Imprimer</button>
+</div>
+
+<div class="grille-plan">
+  <div>
+    <label style="display:block;font-size:.8rem;color:var(--encre-2);margin-bottom:.75rem">Objectifs de la pratique (un par ligne)
+      <textarea id="objectifs" rows="3" style="width:100%"></textarea>
+    </label>
+    <label style="display:block;font-size:.8rem;color:var(--encre-2);margin-bottom:.75rem">Tableau / vestiaire
+      <textarea id="tableau" rows="2" style="width:100%"></textarea>
+    </label>
+
+    <table class="exercices">
+      <thead>
+        <tr><th>Heure</th><th>Exercice</th><th>Min</th><th>Notes</th><th class="actions ecran"></th></tr>
+      </thead>
+      <tbody id="lignes"></tbody>
+    </table>
+    <div class="boutons ecran">
+      <button type="button" id="b-ajouter">+ Ajouter un exercice</button>
+      <button type="button" id="b-ajouter-perso">+ Exercice personnalisé</button>
+    </div>
+  </div>
+
+  <aside class="bilan" aria-label="Répartition du temps">
+    <h2>Répartition du temps</h2>
+    <div id="jauges"></div>
+    <p class="legende-cible">Le trait vertical indique la cible de Hockey Québec. Une marge de ±5 points est considérée comme dans la cible.</p>
+    <div class="total" id="total"></div>
+    <details class="ecran" style="margin-top:.75rem">
+      <summary>Voir le tableau</summary>
+      <table id="tableau-ratios" style="width:100%;font-size:.85rem;font-variant-numeric:tabular-nums;margin-top:.4rem"></table>
+    </details>
+  </aside>
+</div>
+
+<section class="impression">
+  <h2>Détail des exercices</h2>
+  <div id="details" class="cartes"></div>
+</section>
+</div>
+
+<script src="exercices.js"></script>
+<script src="modeles.js"></script>
+<script src="diagrammes-donnees.js"></script>
+<script src="diagrammes.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const PAR_ID = Object.fromEntries(EXERCICES.map((e) => [e.id, e]));
+const CLE_STOCKAGE = "plans-pratique-hockey";
+const MARGE = 5; // points de pourcentage
+
+let plan = planVide();
+
+function planVide() {
+  return { equipe: "M11", titre: "", date: "", theme: "", dureeGlace: 50, consignes: 5, objectifs: [], tableau: "", lignes: [] };
+}
+
+// ─── Lecture / écriture du formulaire ───
+function lireEntete() {
+  plan.equipe = $("equipe").value;
+  plan.titre = $("titre").value;
+  plan.date = $("date").value;
+  plan.theme = $("theme").value;
+  plan.dureeGlace = Number($("dureeGlace").value) || 0;
+  plan.consignes = Number($("consignes").value) || 0;
+  plan.objectifs = $("objectifs").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  plan.tableau = $("tableau").value;
+}
+
+function ecrireEntete() {
+  $("equipe").value = plan.equipe;
+  $("titre").value = plan.titre || "";
+  $("date").value = plan.date || "";
+  $("theme").value = plan.theme || "";
+  $("dureeGlace").value = plan.dureeGlace;
+  $("consignes").value = plan.consignes;
+  $("objectifs").value = (plan.objectifs || []).join("\n");
+  $("tableau").value = plan.tableau || "";
+}
+
+// ─── Lignes d'exercices ───
+function optionsExercices(selection) {
+  let html = '<option value="">— Choisir —</option>';
+  for (const [cle, cat] of Object.entries(CATEGORIES)) {
+    html += `<optgroup label="${cat.nom}">`;
+    for (const e of EXERCICES.filter((x) => x.categorie === cle)) {
+      const recommande = e.equipes.includes(plan.equipe) ? "" : " (autre équipe)";
+      const glace = faisable(e, plan.equipe) ? "" : " (pleine glace requise)";
+      html += `<option value="${e.id}" ${e.id === selection ? "selected" : ""}>${e.id} – ${e.nom}${recommande}${glace}</option>`;
+    }
+    html += "</optgroup>";
+  }
+  return html;
+}
+
+function optionsCategorie(selection) {
+  return Object.entries(CATEGORIES)
+    .map(([cle, cat]) => `<option value="${cle}" ${cle === selection ? "selected" : ""}>${cat.nom}</option>`)
+    .join("");
+}
+
+function categorieDe(ligne) {
+  return ligne.id ? PAR_ID[ligne.id]?.categorie : ligne.categorie;
+}
+
+function formatHeure(min) {
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
+}
+
+function echapper(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+function avertissement(ligne) {
+  const e = PAR_ID[ligne.id];
+  if (!e) return "";
+  if (!faisable(e, plan.equipe)) return '<span class="avertissement">⚠ Demande une pleine glace : pas faisable pour cette équipe.</span>';
+  if (EQUIPES[plan.equipe].glace === "Demi-glace" && e.demi) return '<span class="avertissement">◐ Version demi-glace (voir le détail imprimé)</span>';
+  return "";
+}
+
+function afficherLignes() {
+  let debut = 0;
+  $("lignes").innerHTML = plan.lignes.map((l, i) => {
+    const fin = debut + (Number(l.minutes) || 0);
+    const heure = `${formatHeure(debut)}–${formatHeure(fin)}`;
+    debut = fin;
+    const cat = categorieDe(l);
+    const choix = l.perso
+      ? `<input class="perso" data-i="${i}" data-champ="nom" value="${echapper(l.nom)}" placeholder="Nom de l'exercice">
+         <select data-i="${i}" data-champ="categorie">${optionsCategorie(l.categorie)}</select>`
+      : `<select class="choix" data-i="${i}" data-champ="id">${optionsExercices(l.id)}</select>${avertissement(l)}`;
+    return `<tr>
+      <td class="heure">${heure}</td>
+      <td><span class="pastille cat-${cat || ""}">${cat ? CATEGORIES[cat].nom : "—"}</span>${choix}</td>
+      <td><input class="minutes" type="number" min="0" max="60" data-i="${i}" data-champ="minutes" value="${l.minutes}"></td>
+      <td><textarea data-i="${i}" data-champ="notes">${echapper(l.notes)}</textarea></td>
+      <td class="actions ecran">
+        <button type="button" data-action="monter" data-i="${i}" aria-label="Monter">↑</button>
+        <button type="button" data-action="descendre" data-i="${i}" aria-label="Descendre">↓</button>
+        <button type="button" data-action="retirer" data-i="${i}" aria-label="Retirer">✕</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+// ─── Bilan ───
+function calculer() {
+  const minutes = { T: 0, TI: 0, TC: 0 };
+  for (const l of plan.lignes) {
+    const cat = categorieDe(l);
+    if (cat) minutes[cat] += Number(l.minutes) || 0;
+  }
+  const total = minutes.T + minutes.TI + minutes.TC;
+  const disponible = plan.dureeGlace - plan.consignes;
+  return { minutes, total, disponible };
+}
+
+function afficherBilan() {
+  const { minutes, total, disponible } = calculer();
+  const cibles = EQUIPES[plan.equipe].cibles;
+  const echelle = 70; // la piste représente 0 à 70 %
+  let html = "";
+  let lignesTableau = "<tr><th align=left>Catégorie</th><th align=right>Min</th><th align=right>%</th><th align=right>Cible</th></tr>";
+
+  for (const [cle, cat] of Object.entries(CATEGORIES)) {
+    const pct = total ? (minutes[cle] / total) * 100 : 0;
+    const cible = cibles[cle];
+    const minutesCible = (cible / 100) * (total || disponible);
+    const ecart = minutes[cle] - minutesCible;
+    let statut;
+    if (!total) statut = "—";
+    else if (Math.abs(pct - cible) <= MARGE) statut = "✓ Dans la cible";
+    else if (ecart < 0) statut = `▲ Manque ${Math.abs(ecart).toFixed(1).replace(".", ",")} min`;
+    else statut = `▼ ${ecart.toFixed(1).replace(".", ",")} min de trop`;
+
+    html += `<div class="jauge" title="${cat.nom} : ${minutes[cle]} min (${pct.toFixed(0)} %), cible ${cible} %">
+      <div class="titre"><span><span class="pastille cat-${cle}">${cat.nom}</span></span>
+        <span class="valeur">${pct.toFixed(0)} %</span></div>
+      <div class="piste">
+        <div class="rempli" style="width:${Math.min(pct, echelle) / echelle * 100}%;background:var(--cat-${cle})"></div>
+        <div class="cible" style="left:${cible / echelle * 100}%"></div>
+      </div>
+      <div class="detail">${minutes[cle]} min · cible ${cible} % (${minutesCible.toFixed(1).replace(".", ",")} min) · ${statut}</div>
+    </div>`;
+    lignesTableau += `<tr><td>${cat.nom}</td><td align=right>${minutes[cle]}</td><td align=right>${pct.toFixed(0)} %</td><td align=right>${cible} %</td></tr>`;
+  }
+  $("jauges").innerHTML = html;
+  $("tableau-ratios").innerHTML = lignesTableau;
+
+  const reste = disponible - total;
+  const message = reste === 0 ? "✓ Temps complet"
+    : reste > 0 ? `${reste} min encore disponibles`
+    : `⚠ ${-reste} min de trop`;
+  $("total").innerHTML = `<strong>${total} / ${disponible} min</strong> d'exercices<br>
+    <span class="detail">${plan.dureeGlace} min de glace − ${plan.consignes} min de consignes · ${message}</span>`;
+}
+
+function afficherDetails() {
+  const ids = [...new Set(plan.lignes.map((l) => l.id).filter(Boolean))];
+  const demiGlace = EQUIPES[plan.equipe].glace === "Demi-glace";
+  $("details").innerHTML = ids.map((id) => {
+    const e = PAR_ID[id];
+    const c = CATEGORIES[e.categorie];
+    const liste = (items) => items && items.length ? `<ul>${items.map((x) => `<li>${x}</li>`).join("")}</ul>` : "";
+    const diag = diagrammeDe(e.id);
+    return `<article class="carte" style="--cat:${c.couleur};--cat-sombre:${c.couleurSombre}">
+      <span class="pastille cat-${e.categorie}">${e.id} · ${c.nom}</span>
+      <h2>${e.nom}</h2>
+      <p class="meta">${e.espace}</p>
+      ${diag ? `<figure class="diagramme">${dessinerDiagramme(diag, { titre: e.nom })}${demiGlace && e.demi ? "<figcaption>Diagramme de la version de base : voir l'adaptation demi-glace ci-dessous.</figcaption>" : ""}</figure>` : ""}
+      <p><strong>Organisation :</strong> ${e.organisation}</p>
+      ${demiGlace && e.demi ? `<p class="adaptation"><strong>Adaptation demi-glace :</strong> ${e.demi}</p>` : ""}
+      ${liste(e.deroulement)}
+      <p><strong>Points clés :</strong> ${e.pointsCles.join(" · ")}</p>
+    </article>`;
+  }).join("");
+  const nomEquipe = EQUIPES[plan.equipe].nom;
+  $("titre-impression").textContent = `${nomEquipe} (${EQUIPES[plan.equipe].glace.toLowerCase()}) – ${plan.titre || "Plan de pratique"}${plan.date ? " – " + plan.date : ""}`;
+}
+
+function tout() {
+  afficherLignes();
+  afficherBilan();
+  afficherDetails();
+}
+
+// ─── Événements ───
+$("lignes").addEventListener("input", (ev) => {
+  const t = ev.target;
+  const i = Number(t.dataset.i);
+  const champ = t.dataset.champ;
+  if (!champ) return;
+  const ligne = plan.lignes[i];
+  if (champ === "minutes") ligne.minutes = Number(t.value) || 0;
+  else ligne[champ] = t.value;
+  if (champ === "id" && PAR_ID[t.value]) ligne.minutes = PAR_ID[t.value].duree;
+  // Ne pas redessiner pendant la saisie de texte (perte du focus)
+  if (champ === "id" || champ === "categorie") tout();
+  else { afficherBilan(); if (champ === "minutes") majHeures(); }
+});
+
+function majHeures() {
+  let debut = 0;
+  document.querySelectorAll("#lignes td.heure").forEach((td, i) => {
+    const fin = debut + (Number(plan.lignes[i].minutes) || 0);
+    td.textContent = `${formatHeure(debut)}–${formatHeure(fin)}`;
+    debut = fin;
+  });
+}
+
+$("lignes").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-action]");
+  if (!b) return;
+  const i = Number(b.dataset.i);
+  const L = plan.lignes;
+  if (b.dataset.action === "retirer") L.splice(i, 1);
+  if (b.dataset.action === "monter" && i > 0) [L[i - 1], L[i]] = [L[i], L[i - 1]];
+  if (b.dataset.action === "descendre" && i < L.length - 1) [L[i + 1], L[i]] = [L[i], L[i + 1]];
+  tout();
+});
+
+$("b-ajouter").onclick = () => { plan.lignes.push({ id: "", minutes: 5, notes: "" }); tout(); };
+$("b-ajouter-perso").onclick = () => { plan.lignes.push({ perso: true, nom: "", categorie: "T", minutes: 5, notes: "" }); tout(); };
+
+for (const id of ["equipe", "titre", "date", "theme", "dureeGlace", "consignes", "objectifs", "tableau"]) {
+  $(id).addEventListener("input", () => {
+    lireEntete();
+    if (id === "equipe") afficherLignes();
+    afficherBilan();
+    afficherDetails();
+  });
+}
+
+// ─── Modèles ───
+for (const m of MODELES) $("modele").add(new Option(`${EQUIPES[m.equipe].nom} – ${m.titre}`, m.id));
+$("modele").onchange = () => {
+  const m = MODELES.find((x) => x.id === $("modele").value);
+  if (!m) return;
+  plan = structuredClone({ ...planVide(), ...m });
+  delete plan.id;
+  ecrireEntete();
+  tout();
+  $("modele").value = "";
+};
+
+// ─── Sauvegardes locales ───
+function lireSauvegardes() {
+  try { return JSON.parse(localStorage.getItem(CLE_STOCKAGE)) || {}; } catch { return {}; }
+}
+function nomPlan() {
+  return `${EQUIPES[plan.equipe].nom} – ${plan.titre || "Sans titre"}${plan.date ? " (" + plan.date + ")" : ""}`;
+}
+function rafraichirSauvegardes() {
+  const s = lireSauvegardes();
+  $("sauvegardes").innerHTML = '<option value="">— Charger un plan enregistré —</option>';
+  for (const nom of Object.keys(s).sort()) $("sauvegardes").add(new Option(nom, nom));
+}
+$("b-enregistrer").onclick = () => {
+  lireEntete();
+  const s = lireSauvegardes();
+  s[nomPlan()] = plan;
+  localStorage.setItem(CLE_STOCKAGE, JSON.stringify(s));
+  rafraichirSauvegardes();
+  $("sauvegardes").value = nomPlan();
+};
+$("b-supprimer").onclick = () => {
+  const nom = $("sauvegardes").value;
+  if (!nom || !confirm(`Supprimer « ${nom} »?`)) return;
+  const s = lireSauvegardes();
+  delete s[nom];
+  localStorage.setItem(CLE_STOCKAGE, JSON.stringify(s));
+  rafraichirSauvegardes();
+};
+$("sauvegardes").onchange = () => {
+  const p = lireSauvegardes()[$("sauvegardes").value];
+  if (!p) return;
+  plan = structuredClone(p);
+  ecrireEntete();
+  tout();
+};
+$("b-nouveau").onclick = () => {
+  if (plan.lignes.length && !confirm("Commencer un nouveau plan? Les changements non enregistrés seront perdus.")) return;
+  const equipe = plan.equipe;
+  plan = planVide();
+  plan.equipe = equipe;
+  ecrireEntete();
+  tout();
+};
+
+// ─── Export / import ───
+$("b-exporter").onclick = () => {
+  lireEntete();
+  const blob = new Blob([JSON.stringify(plan, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = nomPlan().replace(/[^\p{L}\p{N}]+/gu, "-") + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$("b-importer").onclick = () => $("fichier").click();
+$("fichier").onchange = async () => {
+  const f = $("fichier").files[0];
+  if (!f) return;
+  try {
+    plan = { ...planVide(), ...JSON.parse(await f.text()) };
+    ecrireEntete();
+    tout();
+  } catch {
+    alert("Fichier invalide.");
+  }
+  $("fichier").value = "";
+};
+
+rafraichirSauvegardes();
+// Lien depuis la page d'une équipe (ex. : plan-pratique.html#M15) : présélectionner l'équipe
+if (EQUIPES[location.hash.slice(1)]) plan.equipe = location.hash.slice(1);
+ecrireEntete();
+tout();
+</script>
+</body>
+</html>

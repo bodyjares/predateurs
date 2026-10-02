@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="fr-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Éditeur de diagrammes – M11-B / M15-C</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .editeur { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 1.25rem; align-items: start; }
+  @media (max-width: 1000px) { .editeur { grid-template-columns: 1fr; } }
+  .outils { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; margin-bottom: 0.6rem; align-items: center; }
+  .outils .groupe { display: flex; flex-wrap: wrap; gap: 0.25rem; padding-right: 0.6rem; border-right: 1px solid var(--ligne); }
+  .outils .groupe:last-child { border-right: none; }
+  .outils button { font-size: 0.85rem; padding: 0.3rem 0.5rem; }
+  .outils button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .outils button:disabled { opacity: 0.4; cursor: default; }
+  #scene { background: #fff; border: 1px solid var(--bordure); border-radius: 8px; overflow: hidden; user-select: none; touch-action: none; }
+  #scene svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 13rem); }
+  #scene.placer { cursor: crosshair; }
+  #apercu .anim-scene svg { display: block; width: 100%; height: auto; max-height: calc(100vh - 16rem); background: #fff; border: 1px solid var(--bordure); border-radius: 8px; }
+  #apercu-avis { font-size: 0.85rem; border-left: 3px solid var(--accent); padding: 0.2rem 0.7rem; margin: 0.6rem 0 0; }
+  #apercu-avis ul { margin: 0.3rem 0; padding-left: 1.1rem; }
+  .panneau { background: var(--surface); border: 1px solid var(--bordure); border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 1rem; }
+  .panneau h2 { margin-top: 0; }
+  .panneau label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.8rem; color: var(--encre-2); margin: 0.5rem 0; }
+  .panneau label.case { flex-direction: row; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: var(--encre); }
+  .panneau .boutons { margin: 0.6rem 0 0; }
+  .panneau p { margin: 0.4rem 0; }
+  .etat { font-size: 0.85rem; color: var(--encre-2); }
+  .message { font-size: 0.85rem; font-weight: 600; min-height: 1.2em; }
+  .aide { font-size: 0.85rem; }
+  .aide ul { padding-left: 1.1rem; margin: 0.4rem 0; }
+  .aide li { margin: 0.25rem 0; }
+  kbd { font: 0.75rem ui-monospace, monospace; border: 1px solid var(--axe); border-bottom-width: 2px; border-radius: 4px; padding: 0 0.3rem; }
+  .infos { margin-top: 1rem; }
+  .infos ol { margin: 0.3rem 0; padding-left: 1.3rem; }
+  #f-exercice { min-width: 24rem; max-width: 100%; }
+</style>
+</head>
+<body>
+<script src="site.js" data-racine=".." data-actif="editeur"></script>
+<header class="bandeau">
+  <div class="page">
+    <p class="surtitre">Outils du coach</p>
+    <h1>Éditeur de diagrammes</h1>
+    <p>Dessine les exercices et les situations du système de jeu. Tes changements s'affichent tout de suite dans la banque et le planificateur.</p>
+  </div>
+</header>
+<div class="page outil">
+
+<section class="entete-plan">
+  <label>Exercice <select id="f-exercice"></select></label>
+  <label>Vue
+    <select id="f-vue">
+      <option value="zone">Zone (jusqu'à la ligne bleue)</option>
+      <option value="demi">Demi-glace</option>
+      <option value="pleine">Pleine glace</option>
+    </select>
+  </label>
+</section>
+
+<div class="editeur">
+  <main>
+    <div class="outils" role="toolbar" aria-label="Outils">
+      <div class="groupe">
+        <button data-outil="choisir" title="Sélectionner et déplacer (Échap)">↖ Choisir</button>
+      </div>
+      <div class="groupe" aria-label="Placer">
+        <button data-outil="X" title="Attaquant">X</button>
+        <button data-outil="O" title="Défenseur">O</button>
+        <button data-outil="G" title="Gardien">G</button>
+        <button data-outil="C" title="Coach">C</button>
+        <button data-outil="cone">Cône</button>
+        <button data-outil="pile">Rondelles</button>
+        <button data-outil="note">Texte</button>
+      </div>
+      <div class="groupe" aria-label="Tracer">
+        <button data-outil="patin">Patin</button>
+        <button data-outil="arriere">Patin arrière</button>
+        <button data-outil="rondelle">Avec rondelle</button>
+        <button data-outil="passe">Passe</button>
+        <button data-outil="tir">Tir</button>
+      </div>
+      <div class="groupe">
+        <button data-outil="etape" title="Clique sur un trajet pour lui donner le prochain numéro d'étape">① Étape</button>
+      </div>
+      <div class="groupe">
+        <button id="b-annuler" title="Annuler (Cmd/Ctrl+Z)">↶ Annuler</button>
+        <button id="b-refaire" title="Refaire (Cmd/Ctrl+Maj+Z)">↷ Refaire</button>
+      </div>
+      <div class="groupe">
+        <button id="b-animer" aria-pressed="false" title="Aperçu de l'animation des étapes (clique un outil pour revenir à l'édition)">▶ Animer</button>
+      </div>
+    </div>
+
+    <div id="scene"></div>
+    <div id="apercu" hidden></div>
+    <div id="apercu-avis" hidden></div>
+
+    <section class="infos">
+      <h2 id="i-nom"></h2>
+      <p class="meta" id="i-meta"></p>
+      <p id="i-org"></p>
+      <ol id="i-der"></ol>
+    </section>
+  </main>
+
+  <aside>
+    <section class="panneau" id="proprietes" aria-live="polite"></section>
+
+    <section class="panneau">
+      <h2>Enregistrer</h2>
+      <p class="etat" id="etat"></p>
+      <div class="boutons">
+        <button class="principal" id="b-fichier">Enregistrer le fichier</button>
+        <button id="b-svg">Image SVG</button>
+        <button id="b-png">Image PNG</button>
+      </div>
+      <p class="etat" id="explication-fichier"></p>
+      <div class="boutons">
+        <button id="b-revenir">Revenir à la version du fichier</button>
+        <button id="b-effacer">Tout effacer</button>
+      </div>
+      <p class="message" id="message" role="status"></p>
+    </section>
+
+    <details class="panneau aide" open>
+      <summary><strong>Mode d'emploi</strong></summary>
+      <ul>
+        <li><strong>Placer</strong> : choisis X, O, G, C, Cône ou Rondelles, puis clique sur la glace (autant de fois que tu veux).</li>
+        <li><strong>Tracer</strong> : choisis un type de trajet, clique pour chaque point, puis double-clique (ou <kbd>Entrée</kbd>) pour terminer. Si tu commences sur un joueur, le trajet part de lui. Une passe ou un tir est une ligne droite : 2 clics suffisent.</li>
+        <li><strong>Déplacer</strong> : avec « Choisir », glisse un élément. Déplacer un joueur déplace aussi le début des trajets qui partent de lui.</li>
+        <li><strong>Courbes</strong> : la ligne passe par tous ses points. Sélectionne un trajet, <strong>double-clique sur la ligne</strong> pour ajouter un point, puis glisse-le pour courber. Double-clique sur un point pour le retirer. Les passes et les tirs restent droits.</li>
+        <li><strong>Étapes</strong> : avec « ① Étape », clique sur les trajets dans l'ordre (1, 2, 3…). Clique un numéro pour le changer ou le supprimer, glisse-le pour le déplacer le long de la ligne.</li>
+        <li><kbd>Suppr</kbd> efface la sélection (ou le point choisi), les <kbd>flèches</kbd> la déplacent (<kbd>Maj</kbd> = plus loin), <kbd>Cmd/Ctrl+D</kbd> duplique, <kbd>Cmd/Ctrl+Z</kbd> annule.</li>
+      </ul>
+    </details>
+  </aside>
+</div>
+</div>
+
+<script src="exercices.js"></script>
+<script src="systemes.js"></script>
+<script src="diagrammes-donnees.js"></script>
+<script src="diagrammes.js"></script>
+<script src="animation.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const CLE = "hockey.diagrammes.v1";
+const NS = "http://www.w3.org/2000/svg";
+const VIOLET = "#7c3aed"; // sélection : absent des couleurs du diagramme
+const LISTES = ["joueurs", "cones", "rondelles", "trajets", "notes"];
+const TYPES_JOUEUR = { X: "Attaquant (X)", O: "Défenseur (O)", D: "Défenseur (D)", G: "Gardien (G)", C: "Coach (C)" };
+const TYPES_TRAJET = { patin: "Patin", arriere: "Patin arrière", rondelle: "Avec rondelle", passe: "Passe", tir: "Tir" };
+const { repere, lissage, courbable, pointsTrajet, positionNumero } = OutilsDiagramme;
+
+const copie = (o) => JSON.parse(JSON.stringify(o));
+const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const arr = (n) => Math.round(n * 2) / 2; // coordonnées à la demi-pied près
+const borner = (n, min, max) => Math.min(max, Math.max(min, n));
+const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+// Diagramme sans listes vides, pour comparer et écrire le fichier
+function nettoyer(diag) {
+  const p = { vue: diag.vue || "demi" };
+  for (const k of LISTES) if (diag[k] && diag[k].length) p[k] = copie(diag[k]);
+  return p;
+}
+const estVide = (diag) => LISTES.every((k) => !diag[k] || !diag[k].length);
+function completer(diag) {
+  for (const k of LISTES) diag[k] = diag[k] || [];
+  return diag;
+}
+
+// ─── Données : fichier + modifications gardées dans le navigateur ───
+let fichier = copie(DIAGRAMMES);
+let locales = JSON.parse(localStorage.getItem(CLE) || "{}");
+for (const id of Object.keys(locales)) {
+  if (stable(locales[id]) === stable(fichier[id] ? nettoyer(fichier[id]) : null)) delete locales[id];
+}
+let diagrammes = copie(fichier);
+for (const [id, diag] of Object.entries(locales)) {
+  if (diag === null) delete diagrammes[id];
+  else diagrammes[id] = copie(diag);
+}
+
+let courant, d, calque, poignee = null;
+let outil = "choisir", selection = null, enCours = null, souris = null, glisse = null, saisie = false;
+let historique = [], refaire = [];
+
+// Une fiche = un exercice de la banque ou une situation du système de jeu
+const FICHES = [...EXERCICES, ...SITUATIONS.map((s) => ({ ...s, systeme: true }))];
+const exercice = () => FICHES.find((e) => e.id === courant);
+const vueParDefaut = (e) => (e.systeme || ["Zone", "Coin", "Cercles"].includes(e.espace) ? "zone" : e.espace === "Pleine glace" ? "pleine" : "demi");
+const optionsDessin = () => ({ titre: exercice().nom, noms: exercice().systeme ? NOMS_SYSTEME : undefined });
+
+// ─── Liste des exercices ───
+function remplirListe() {
+  for (const [cat, info] of Object.entries(CATEGORIES)) {
+    const groupe = document.createElement("optgroup");
+    groupe.label = info.nom;
+    for (const e of EXERCICES.filter((x) => x.categorie === cat)) groupe.appendChild(new Option("", e.id));
+    $("f-exercice").appendChild(groupe);
+  }
+  for (const [equipe, info] of Object.entries(EQUIPES)) {
+    const groupe = document.createElement("optgroup");
+    groupe.label = `Système de jeu ${info.nom}`;
+    for (const s of SITUATIONS.filter((x) => x.equipe === equipe)) groupe.appendChild(new Option("", s.id));
+    $("f-exercice").appendChild(groupe);
+  }
+  majListe();
+}
+function majListe() {
+  for (const o of $("f-exercice").options) {
+    const e = FICHES.find((x) => x.id === o.value);
+    o.textContent = `${e.systeme ? `Phase ${e.phase}` : e.id} – ${e.nom}${diagrammes[e.id] ? "  ●" : ""}${e.id in locales ? " (modifié)" : ""}`;
+  }
+}
+
+function chargerExercice(id) {
+  if (enCours) enCours = null;
+  courant = id;
+  const e = exercice();
+  d = completer(diagrammes[id] ? copie(diagrammes[id]) : { vue: vueParDefaut(e) });
+  selection = null; glisse = null; historique = []; refaire = [];
+  $("f-exercice").value = id;
+  $("f-vue").value = d.vue;
+  history.replaceState(null, "", "#" + id);
+  if (e.systeme) {
+    $("i-nom").textContent = e.nom;
+    $("i-meta").textContent = `Système de jeu ${EQUIPES[e.equipe].nom} · phase ${e.phase}`;
+    $("i-org").textContent = `Illustre la section « ${e.section} » de ${EQUIPES[e.equipe].nom}/systeme-de-jeu.md. X = notre équipe, O = l'adversaire.`;
+    $("i-der").innerHTML = "";
+  } else {
+    $("i-nom").textContent = `${e.id} – ${e.nom}`;
+    $("i-meta").textContent = `${e.duree} min · ${e.espace} · ${e.equipes.map((q) => EQUIPES[q].nom).join(" · ")}`;
+    $("i-org").textContent = e.organisation;
+    $("i-der").innerHTML = e.deroulement.map((x) => `<li>${x}</li>`).join("");
+  }
+  dessiner(); panneau(); majEtat(); majBoutonsHistorique();
+}
+
+// ─── Historique ───
+function avantModif() {
+  historique.push(JSON.stringify(d));
+  if (historique.length > 200) historique.shift();
+  refaire = [];
+}
+function apresModif({ majPanneau = true } = {}) {
+  memoriser();
+  dessiner();
+  if (majPanneau) panneau();
+  majBoutonsHistorique();
+}
+function annuler(pile, autre) {
+  if (!pile.length) return;
+  autre.push(JSON.stringify(d));
+  d = JSON.parse(pile.pop());
+  selection = null; enCours = null;
+  $("f-vue").value = d.vue;
+  apresModif();
+}
+function majBoutonsHistorique() {
+  $("b-annuler").disabled = !historique.length;
+  $("b-refaire").disabled = !refaire.length;
+}
+
+// Garde le diagramme dans le navigateur tant qu'il diffère du fichier
+function memoriser() {
+  const propre = nettoyer(d);
+  const vide = estVide(propre);
+  if (vide) delete diagrammes[courant]; else diagrammes[courant] = copie(propre);
+  const ref = fichier[courant] ? nettoyer(fichier[courant]) : null;
+  if (stable(vide ? null : propre) === stable(ref)) delete locales[courant];
+  else locales[courant] = vide ? null : propre;
+  localStorage.setItem(CLE, JSON.stringify(locales));
+  majEtat(); majListe();
+}
+
+// ─── Dessin ───
+function el(nom, attrs) {
+  const n = document.createElementNS(NS, nom);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+function dessiner() {
+  quitterApercu();
+  const r = repere(d.vue);
+  let affiche = d;
+  if (enCours) {
+    const pts = souris && dist(souris, enCours.points.at(-1)) > 0.8 ? [...enCours.points, souris] : enCours.points;
+    if (pts.length >= 2) affiche = { ...d, trajets: [...d.trajets, { ...enCours, points: pts }] };
+  }
+  $("scene").innerHTML = dessinerDiagramme(affiche, optionsDessin());
+  calque = el("g", { transform: `translate(${r.marge - r.x0 * r.echelle},${r.marge}) scale(${r.echelle})`, "pointer-events": "none" });
+  $("scene").firstElementChild.appendChild(calque);
+  const trait = { fill: "none", stroke: VIOLET, "stroke-width": 0.3, "stroke-dasharray": "1 0.7" };
+  if (selection?.genre === "numero") {
+    const [x, y] = positionNumero(d.trajets[selection.index], d.joueurs);
+    calque.appendChild(el("circle", { cx: x, cy: y, r: 2.4, ...trait }));
+  } else if (selection) {
+    const o = d[selection.genre][selection.index];
+    if (selection.genre === "joueurs") calque.appendChild(el("circle", { cx: o.x, cy: o.y, r: 3.1, ...trait }));
+    if (selection.genre === "cones") calque.appendChild(el("circle", { cx: o[0], cy: o[1], r: 2, ...trait }));
+    if (selection.genre === "rondelles") calque.appendChild(el("circle", { cx: o[0], cy: o[1], r: 2.4, ...trait }));
+    if (selection.genre === "notes") {
+      const w = largeurNote(o);
+      calque.appendChild(el("rect", { x: o.x - w / 2 - 0.6, y: o.y - 2.2, width: w + 1.2, height: 3.2, rx: 0.4, ...trait }));
+    }
+    if (selection.genre === "trajets") poignees(o.points, selection.point);
+  }
+  if (enCours) poignees(enCours.points, null);
+}
+
+// Points de contrôle d'un trajet : polygone léger + une poignée par point
+function poignees(points, choisi) {
+  calque.appendChild(el("polyline", { points: points.map((q) => q.join(",")).join(" "), fill: "none", stroke: VIOLET, "stroke-width": 0.2, "stroke-dasharray": "0.6 0.6", opacity: 0.6 }));
+  points.forEach((q, j) => (j === 0 && joueurProche(q)) || calque.appendChild(el("circle", {
+    cx: q[0], cy: q[1], r: 1, fill: j === choisi ? VIOLET : "#fff", stroke: VIOLET, "stroke-width": 0.3,
+  })));
+}
+
+const largeurNote = (n) => Math.max(2, n.texte.length * 1.05);
+
+// ─── Souris ───
+function position(ev) {
+  const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(calque.getScreenCTM().inverse());
+  const { x0, x1 } = repere(d.vue);
+  return [borner(p.x, x0, x1), borner(p.y, 0, 85)];
+}
+
+// Élément sous le pointeur, calculé géométriquement (le SVG est redessiné à chaque changement)
+function toucher(p) {
+  if (selection?.genre === "trajets") {
+    // Le début d'un trajet accroché à un joueur suit le joueur : on attrape le joueur, pas le point
+    const j = d.trajets[selection.index].points.findIndex((q, k) => dist(q, p) < 1.4 && !(k === 0 && joueurProche(q)));
+    if (j >= 0) return { genre: "point", index: selection.index, point: j };
+  }
+  const plusProche = (liste, pos, rayon) => {
+    let meilleur = -1, min = rayon;
+    liste.forEach((o, i) => { const e = dist(pos(o), p); if (e < min) { min = e; meilleur = i; } });
+    return meilleur;
+  };
+  let i;
+  if ((i = plusProche(d.joueurs, (j) => [j.x, j.y], 2.6)) >= 0) return { genre: "joueurs", index: i };
+  if ((i = plusProche(d.trajets, (t) => (aNumero(t) ? positionNumero(t, d.joueurs) : [Infinity, Infinity]), 1.9)) >= 0) return { genre: "numero", index: i };
+  i = d.notes.findIndex((n) => Math.abs(p[0] - n.x) < largeurNote(n) / 2 + 0.6 && p[1] > n.y - 2.2 && p[1] < n.y + 1);
+  if (i >= 0) return { genre: "notes", index: i };
+  if ((i = plusProche(d.cones, (c) => c, 1.8)) >= 0) return { genre: "cones", index: i };
+  if ((i = plusProche(d.rondelles, (c) => c, 2.2)) >= 0) return { genre: "rondelles", index: i };
+  if ((i = plusProche(d.trajets, (t) => lissage(t).reduce((m, q) => (dist(q, p) < dist(m, p) ? q : m)), 2)) >= 0) return { genre: "trajets", index: i };
+  return null;
+}
+
+const aNumero = (t) => t.numero != null && t.numero !== "";
+const prochainNumero = () => Math.max(0, ...d.trajets.map((t) => (typeof t.numero === "number" ? t.numero : 0))) + 1;
+
+// Place le numéro d'étape au point du trajet le plus proche, du côté de la ligne où est le pointeur
+function placerNumero(t, p) {
+  const pts = pointsTrajet(t, d.joueurs);
+  let k = 0;
+  pts.forEach((q, i) => { if (dist(q, p) < dist(pts[k], p)) k = i; });
+  t.posNumero = Math.round(borner(k / pts.length, 0.02, 0.98) * 100) / 100;
+  const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)];
+  const cote = (p[0] - pts[k][0]) * -(b[1] - a[1]) + (p[1] - pts[k][1]) * (b[0] - a[0]);
+  if (cote < 0) t.coteNumero = -1; else delete t.coteNumero;
+}
+
+const joueurProche = (p) => d.joueurs.find((j) => dist([j.x, j.y], p) < 2.6);
+
+function deplacer(genre, orig, dx, dy) {
+  const { x0, x1 } = repere(d.vue);
+  const q = (x, y) => [arr(borner(x + dx, x0, x1)), arr(borner(y + dy, 0, 85))];
+  if (genre === "joueurs" || genre === "notes") { const [x, y] = q(orig.x, orig.y); return { ...orig, x, y }; }
+  if (genre === "trajets") return { ...orig, points: orig.points.map(([x, y]) => q(x, y)) };
+  return q(orig[0], orig[1]);
+}
+
+const scene = $("scene");
+scene.addEventListener("pointerdown", (ev) => {
+  if (ev.button !== 0) return;
+  const p = position(ev);
+  scene.setPointerCapture(ev.pointerId);
+  if (outil === "choisir") {
+    const t = toucher(p);
+    if (!t) selection = null;
+    else if (t.genre === "numero") {
+      selection = { genre: "numero", index: t.index };
+      glisse = { depart: p, numero: true, suiveurs: [] };
+    } else if (t.genre === "point") {
+      selection = { genre: "trajets", index: t.index, point: t.point };
+      glisse = { depart: p, orig: copie(d.trajets[t.index]), point: t.point, suiveurs: [] };
+    } else {
+      selection = { genre: t.genre, index: t.index };
+      const o = d[t.genre][t.index];
+      // Les trajets qui partent d'un joueur le suivent quand on le déplace
+      const suiveurs = t.genre === "joueurs"
+        ? d.trajets.flatMap((tr, i) => (dist(tr.points[0], [o.x, o.y]) < 0.3 ? [{ i, orig: tr.points[0] }] : []))
+        : [];
+      glisse = { depart: p, orig: copie(o), suiveurs };
+    }
+    dessiner(); panneau();
+  } else if (outil === "etape") {
+    const t = toucher(p);
+    if (!t || !["trajets", "numero"].includes(t.genre)) return message("Clique sur un trajet pour lui ajouter une étape.");
+    const tr = d.trajets[t.index];
+    avantModif();
+    if (!aNumero(tr)) tr.numero = prochainNumero();
+    placerNumero(tr, p);
+    selection = { genre: "numero", index: t.index };
+    apresModif();
+  } else if (TYPES_TRAJET[outil]) {
+    const j = joueurProche(p);
+    const q = j ? [j.x, j.y] : [arr(p[0]), arr(p[1])];
+    if (!enCours) enCours = { type: outil, points: [q], ...(j ? {} : { depuisJoueur: false }) };
+    else if (dist(q, enCours.points.at(-1)) > 0.8) enCours.points.push([arr(p[0]), arr(p[1])]);
+    souris = null;
+    // Passe ou tir : une ligne droite, terminée dès le 2e clic
+    if (!courbable(enCours) && enCours.points.length === 2) return terminerTrajet();
+    dessiner(); panneau();
+  } else placer(outil, p);
+});
+
+scene.addEventListener("pointermove", (ev) => {
+  const p = position(ev);
+  if (glisse) {
+    if (!glisse.modifie) {
+      if (dist(p, glisse.depart) < 0.3) return;
+      avantModif();
+      glisse.modifie = true;
+    }
+    const dx = p[0] - glisse.depart[0], dy = p[1] - glisse.depart[1];
+    const { genre, index } = selection;
+    if (glisse.numero) placerNumero(d.trajets[index], p);
+    else if (glisse.point != null) {
+      const t = d.trajets[index];
+      let q = deplacer("cones", glisse.orig.points[glisse.point], dx, dy);
+      if (glisse.point === 0) {
+        const j = joueurProche(q);
+        if (j) { q = [j.x, j.y]; delete t.depuisJoueur; } else t.depuisJoueur = false;
+      }
+      t.points[glisse.point] = q;
+    } else d[genre][index] = deplacer(genre, glisse.orig, dx, dy);
+    for (const s of glisse.suiveurs) d.trajets[s.i].points[0] = deplacer("cones", s.orig, dx, dy);
+    dessiner();
+  } else if (enCours) {
+    souris = [arr(p[0]), arr(p[1])];
+    dessiner();
+  } else if (outil === "choisir") {
+    const t = toucher(p);
+    scene.style.cursor = !t ? "default" : t.genre === "point" ? "grab" : "move";
+  }
+});
+
+scene.addEventListener("pointerup", () => {
+  if (glisse?.modifie) apresModif();
+  glisse = null;
+});
+
+scene.addEventListener("dblclick", (ev) => {
+  if (enCours?.points.length > 1) return terminerTrajet();
+  enCours = null; // double-clic sans avoir tracé : on agit sur la ligne sous le pointeur
+  if (outil === "etape") return;
+  const p = position(ev);
+  const t = toucher(p);
+  if (t?.genre === "point") retirerPoint(t.index, t.point);
+  else if (t?.genre === "trajets") {
+    if (courbable(d.trajets[t.index])) insererPoint(t.index, p);
+    else message("Les passes et les tirs restent droits : glisse leurs extrémités.");
+  } else { dessiner(); panneau(); }
+});
+
+// ─── Actions ───
+// Aperçu de l'animation : remplace la scène ; toute modification ou tout outil ramène à l'édition
+let lecteur = null;
+function ouvrirApercu() {
+  if (enCours) terminerTrajet();
+  selection = null; glisse = null;
+  scene.hidden = true;
+  $("apercu").hidden = false;
+  lecteur = AnimationDiagramme.creer($("apercu"), nettoyer(d), { ...optionsDessin(), auto: true });
+  const avis = lecteur.plan.avertissements;
+  $("apercu-avis").hidden = !avis.length;
+  $("apercu-avis").innerHTML = avis.length ? `<strong>À vérifier pour l'animation</strong><ul>${avis.map((a) => `<li>${a.message}</li>`).join("")}</ul>` : "";
+  $("b-animer").setAttribute("aria-pressed", "true");
+  $("b-animer").textContent = "✎ Éditer";
+}
+function quitterApercu() {
+  if (!lecteur) return;
+  lecteur.detruire();
+  lecteur = null;
+  $("apercu").hidden = $("apercu-avis").hidden = true;
+  $("apercu").innerHTML = "";
+  scene.hidden = false;
+  $("b-animer").setAttribute("aria-pressed", "false");
+  $("b-animer").textContent = "▶ Animer";
+}
+$("b-animer").addEventListener("click", () => {
+  if (lecteur) { quitterApercu(); dessiner(); } else ouvrirApercu();
+});
+
+function choisirOutil(o) {
+  if (lecteur) { quitterApercu(); dessiner(); }
+  if (enCours) terminerTrajet();
+  outil = o;
+  for (const b of document.querySelectorAll("[data-outil]")) b.setAttribute("aria-pressed", b.dataset.outil === o);
+  scene.classList.toggle("placer", o !== "choisir");
+  scene.style.cursor = "";
+}
+
+function placer(type, p) {
+  avantModif();
+  const [x, y] = [arr(p[0]), arr(p[1])];
+  if (TYPES_JOUEUR[type]) { d.joueurs.push({ type, x, y }); selection = { genre: "joueurs", index: d.joueurs.length - 1 }; }
+  if (type === "cone") { d.cones.push([x, y]); selection = { genre: "cones", index: d.cones.length - 1 }; }
+  if (type === "pile") { d.rondelles.push([x, y]); selection = { genre: "rondelles", index: d.rondelles.length - 1 }; }
+  if (type === "note") { d.notes.push({ x, y, texte: "Texte" }); selection = { genre: "notes", index: d.notes.length - 1 }; choisirOutil("choisir"); }
+  apresModif();
+  if (type === "note") { const champ = document.querySelector('[data-prop="texte"]'); champ.focus(); champ.select(); }
+}
+
+function terminerTrajet() {
+  const t = enCours;
+  enCours = null; souris = null;
+  if (t && t.points.length >= 2) {
+    avantModif();
+    d.trajets.push(t);
+    selection = { genre: "trajets", index: d.trajets.length - 1 };
+    apresModif();
+  } else { dessiner(); panneau(); }
+}
+
+// Nouveau point : dans le segment où il allonge le moins le trajet
+function insererPoint(i, p) {
+  if (!courbable(d.trajets[i])) return;
+  const pts = d.trajets[i].points;
+  let meilleur = 1, cout = Infinity;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const c = dist(pts[k], p) + dist(p, pts[k + 1]) - dist(pts[k], pts[k + 1]);
+    if (c < cout) { cout = c; meilleur = k + 1; }
+  }
+  avantModif();
+  pts.splice(meilleur, 0, [arr(p[0]), arr(p[1])]);
+  selection = { genre: "trajets", index: i, point: meilleur };
+  apresModif();
+}
+
+function retirerPoint(i, j) {
+  const pts = d.trajets[i].points;
+  if (pts.length <= 2) return message("Un trajet garde au moins 2 points. Supprime le trajet au complet s'il le faut.");
+  avantModif();
+  pts.splice(j, 1);
+  selection = { genre: "trajets", index: i };
+  apresModif();
+}
+
+function supprimer() {
+  if (!selection) return;
+  if (selection.genre === "numero") return actions.supprimerEtape();
+  avantModif();
+  d[selection.genre].splice(selection.index, 1);
+  selection = null;
+  apresModif();
+}
+
+function dupliquer() {
+  if (!selection || selection.genre === "numero") return;
+  avantModif();
+  const liste = d[selection.genre];
+  liste.push(deplacer(selection.genre, copie(liste[selection.index]), 3, 3));
+  selection = { genre: selection.genre, index: liste.length - 1 };
+  apresModif();
+}
+
+function pousser(dx, dy) {
+  if (!selection || selection.genre === "numero") return;
+  avantModif();
+  const liste = d[selection.genre];
+  if (selection.point != null) liste[selection.index].points[selection.point] = deplacer("cones", liste[selection.index].points[selection.point], dx, dy);
+  else liste[selection.index] = deplacer(selection.genre, liste[selection.index], dx, dy);
+  apresModif();
+}
+
+const actions = {
+  terminer: terminerTrajet,
+  annulerTrajet: () => { enCours = null; dessiner(); panneau(); },
+  supprimer,
+  dupliquer,
+  retirerPoint: () => retirerPoint(selection.index, selection.point),
+  ajouterPoint: () => {
+    const pts = d.trajets[selection.index].points;
+    let k = 0;
+    for (let i = 1; i < pts.length - 1; i++) if (dist(pts[i], pts[i + 1]) > dist(pts[k], pts[k + 1])) k = i;
+    insererPoint(selection.index, [(pts[k][0] + pts[k + 1][0]) / 2, (pts[k][1] + pts[k + 1][1]) / 2]);
+  },
+  supprimerEtape: () => {
+    avantModif();
+    const t = d.trajets[selection.index];
+    for (const k of ["numero", "posNumero", "coteNumero"]) delete t[k];
+    selection = { genre: "trajets", index: selection.index };
+    apresModif();
+  },
+  voirTrajet: () => { selection = { genre: "trajets", index: selection.index }; dessiner(); panneau(); },
+  inverser: () => { avantModif(); d.trajets[selection.index].points.reverse(); selection.point = null; apresModif(); },
+};
+
+// ─── Panneau des propriétés ───
+const options = (types, valeur) => Object.entries(types).map(([v, nom]) => `<option value="${v}"${v === valeur ? " selected" : ""}>${nom}</option>`).join("");
+
+function panneau() {
+  const p = $("proprietes");
+  if (enCours) {
+    p.innerHTML = `<h2>Trajet en cours</h2>
+      <p>${enCours.points.length} point(s). Clique pour ajouter des points. Double-clique ou <kbd>Entrée</kbd> pour terminer, <kbd>Échap</kbd> pour annuler.</p>
+      <div class="boutons"><button class="principal" data-action="terminer">Terminer le trajet</button><button data-action="annulerTrajet">Annuler</button></div>`;
+    return;
+  }
+  if (!selection) {
+    p.innerHTML = `<h2>Sélection</h2><p class="meta">Clique un élément du diagramme pour le modifier, ou choisis un outil pour en ajouter.</p>`;
+    return;
+  }
+  if (selection.genre === "numero") {
+    const t = d.trajets[selection.index];
+    p.innerHTML = `<h2>Étape</h2>
+      <label>Numéro <input data-prop="numero" value="${attr(t.numero)}" size="3" maxlength="3"></label>
+      <p class="meta">Glisse le numéro pour le déplacer le long du trajet ou de l'autre côté de la ligne.</p>
+      <div class="boutons"><button data-action="supprimerEtape">Supprimer l'étape</button><button data-action="voirTrajet">Sélectionner le trajet</button></div>`;
+    return;
+  }
+  const o = d[selection.genre][selection.index];
+  let h = "";
+  if (selection.genre === "joueurs") {
+    h = `<h2>Joueur</h2>
+      <label>Type <select data-prop="type">${options(TYPES_JOUEUR, o.type)}</select></label>
+      <label>Étiquette sous le symbole <input data-prop="etiquette" value="${attr(o.etiquette || "")}" placeholder="ex. : F1, D2"></label>
+      <label class="case"><input type="checkbox" data-prop="rondelle"${o.rondelle ? " checked" : ""}> A la rondelle</label>`;
+  } else if (selection.genre === "trajets") {
+    const courbe = courbable(o);
+    const point = courbe && selection.point != null && o.points.length > 2 ? `<button data-action="retirerPoint">Retirer le point ${selection.point + 1}</button>` : "";
+    h = `<h2>Trajet</h2>
+      <label>Type <select data-prop="type">${options(TYPES_TRAJET, o.type)}</select></label>
+      ${courbe ? `<label>Forme <select data-prop="forme">${options({ courbe: "Courbe (passe par les points)", droit: "Lignes droites" }, o.forme || "courbe")}</select></label>` : ""}
+      <label>Numéro d'étape <input data-prop="numero" value="${attr(o.numero ?? "")}" size="3" maxlength="3" placeholder="aucun"></label>
+      <label class="case"><input type="checkbox" data-prop="depuisJoueur"${o.depuisJoueur === false ? "" : " checked"}> Part d'un joueur (la ligne commence au bord du symbole)</label>
+      <p class="meta">${courbe
+        ? `${o.points.length} points. Double-clique sur la ligne pour ajouter un point, glisse un point pour courber, double-clique sur un point pour le retirer.`
+        : "Une passe ou un tir reste droit : glisse ses extrémités."}</p>
+      <div class="boutons">${courbe ? `<button data-action="ajouterPoint">Ajouter un point</button>` : ""}${point}<button data-action="inverser">Inverser le sens</button></div>`;
+  } else if (selection.genre === "notes") {
+    h = `<h2>Texte</h2><label>Texte <input data-prop="texte" value="${attr(o.texte)}"></label>`;
+  } else {
+    h = `<h2>${selection.genre === "cones" ? "Cône" : "Pile de rondelles"}</h2>`;
+  }
+  p.innerHTML = h + `<div class="boutons"><button data-action="dupliquer">Dupliquer</button><button data-action="supprimer">Supprimer</button></div>`;
+}
+
+$("proprietes").addEventListener("input", (ev) => {
+  const cle = ev.target.dataset.prop;
+  if (!cle || !selection) return;
+  const o = selection.genre === "numero" ? d.trajets[selection.index] : d[selection.genre][selection.index];
+  let v = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+  // Étape sélectionnée : un champ vide ne la supprime pas (bouton « Supprimer l'étape »)
+  if (cle === "numero" && selection.genre === "numero" && v.trim() === "") return;
+  if (!saisie) { avantModif(); saisie = true; } // une seule étape d'annulation par champ modifié
+  if (cle === "numero") v = v.trim() === "" ? "" : /^\d+$/.test(v.trim()) ? Number(v) : v.trim();
+  if (cle === "depuisJoueur") v = v ? "" : false; // « oui » est la valeur par défaut
+  if (cle === "forme" && v === "courbe") v = "";
+  if (v === "" || (v === false && cle !== "depuisJoueur")) delete o[cle]; else o[cle] = v;
+  if (cle === "numero" && v === "") { delete o.posNumero; delete o.coteNumero; }
+  if (cle === "type" && !courbable(o)) { o.points = [o.points[0], o.points.at(-1)]; delete o.forme; }
+  apresModif({ majPanneau: cle === "type" });
+});
+$("proprietes").addEventListener("change", () => { saisie = false; });
+document.addEventListener("click", (ev) => {
+  const a = ev.target.closest("[data-action]");
+  if (a) actions[a.dataset.action]();
+  const b = ev.target.closest("[data-outil]");
+  if (b) choisirOutil(b.dataset.outil);
+});
+
+// ─── Clavier ───
+document.addEventListener("keydown", (ev) => {
+  const champ = ["INPUT", "SELECT", "TEXTAREA"].includes(ev.target.tagName);
+  const cmd = ev.metaKey || ev.ctrlKey;
+  if (cmd && ev.key.toLowerCase() === "z" && !champ) { ev.preventDefault(); ev.shiftKey ? annuler(refaire, historique) : annuler(historique, refaire); return; }
+  if (cmd && ev.key.toLowerCase() === "y" && !champ) { ev.preventDefault(); annuler(refaire, historique); return; }
+  if (champ) { if (ev.key === "Escape") ev.target.blur(); return; }
+  if (cmd && ev.key.toLowerCase() === "d") { ev.preventDefault(); dupliquer(); return; }
+  if (ev.key === "Escape") {
+    if (enCours) actions.annulerTrajet();
+    else if (outil !== "choisir") choisirOutil("choisir");
+    else { selection = null; dessiner(); panneau(); }
+  } else if (ev.key === "Enter" && enCours) terminerTrajet();
+  else if (ev.key === "Delete" || ev.key === "Backspace") {
+    ev.preventDefault();
+    if (selection?.point != null) retirerPoint(selection.index, selection.point); else supprimer();
+  } else if (ev.key.startsWith("Arrow") && selection) {
+    ev.preventDefault();
+    const pas = ev.shiftKey ? 2 : 0.5;
+    const [dx, dy] = { ArrowLeft: [-pas, 0], ArrowRight: [pas, 0], ArrowUp: [0, -pas], ArrowDown: [0, pas] }[ev.key];
+    pousser(dx, dy);
+  }
+});
+
+// ─── Enregistrement ───
+function js(v) {
+  if (Array.isArray(v)) return "[" + v.map(js).join(", ") + "]";
+  if (v && typeof v === "object") return "{ " + Object.entries(v).map(([k, x]) => `${/^[a-zA-Z_]\w*$/.test(k) ? k : JSON.stringify(k)}: ${js(x)}`).join(", ") + " }";
+  return JSON.stringify(v);
+}
+
+function contenuFichier() {
+  const ordre = FICHES.map((e) => e.id);
+  const ids = Object.keys(diagrammes).sort((a, b) => ordre.indexOf(a) - ordre.indexOf(b));
+  let s = "// Diagrammes des exercices et des situations du système de jeu (systemes.js), par code (voir diagrammes.js pour le format).\n" +
+    "// Ce fichier est réécrit par editeur-diagrammes.html (bouton « Enregistrer le fichier »).\n" +
+    "const DIAGRAMMES = {\n";
+  for (const id of ids) {
+    const p = nettoyer(diagrammes[id]);
+    if (estVide(p)) continue;
+    s += `  ${id}: {\n    vue: ${js(p.vue)},\n`;
+    for (const k of LISTES) if (p[k]) s += `    ${k}: [\n${p[k].map((v) => `      ${js(v)},`).join("\n")}\n    ],\n`;
+    s += "  },\n";
+  }
+  return s + '};\n\nif (typeof module !== "undefined") module.exports = { DIAGRAMMES };\n';
+}
+
+function telecharger(nom, contenu, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(contenu instanceof Blob ? contenu : new Blob([contenu], { type }));
+  a.download = nom;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function enregistrerFichier() {
+  const contenu = contenuFichier();
+  if (!window.showSaveFilePicker) {
+    telecharger("diagrammes-donnees.js", contenu, "text/javascript");
+    return message("Fichier téléchargé : remplace outils/diagrammes-donnees.js par celui-ci.");
+  }
+  try {
+    if (!poignee) {
+      poignee = await showSaveFilePicker({ suggestedName: "diagrammes-donnees.js", types: [{ description: "JavaScript", accept: { "text/javascript": [".js"] } }] });
+    }
+    const w = await poignee.createWritable();
+    await w.write(contenu);
+    await w.close();
+    fichier = copie(diagrammes);
+    locales = {};
+    localStorage.setItem(CLE, "{}");
+    majEtat(); majListe();
+    message(`Enregistré dans ${poignee.name}.`);
+  } catch (e) {
+    if (e.name !== "AbortError") message("Erreur : " + e.message);
+  }
+}
+
+function majEtat() {
+  const ids = Object.keys(locales);
+  $("etat").textContent = ids.length
+    ? `Pas encore dans le fichier : ${ids.join(", ")}. En attendant, tes changements sont gardés dans ce navigateur.`
+    : "Tout est enregistré dans le fichier.";
+  $("explication-fichier").textContent = window.showSaveFilePicker
+    ? (poignee ? `Les prochains enregistrements écrivent directement dans ${poignee.name}.` : "La première fois, choisis le fichier outils/diagrammes-donnees.js et accepte de le remplacer.")
+    : "Le fichier sera téléchargé : remplace ensuite outils/diagrammes-donnees.js par celui-ci.";
+}
+
+let minuterie;
+function message(texte) {
+  $("message").textContent = texte;
+  clearTimeout(minuterie);
+  minuterie = setTimeout(() => { $("message").textContent = ""; }, 6000);
+}
+
+function svgExporte() {
+  return dessinerDiagramme(d, optionsDessin());
+}
+
+function exporterPNG() {
+  const r = repere(d.vue);
+  const [w, h] = [r.largeur, r.hauteurGlace + 36];
+  const img = new Image(w, h);
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = w * 2; c.height = h * 2;
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    c.toBlob((b) => telecharger(`${courant}.png`, b));
+  };
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgExporte().replace("<svg ", `<svg width="${w}" height="${h}" `));
+}
+
+$("b-fichier").addEventListener("click", enregistrerFichier);
+$("b-svg").addEventListener("click", () => telecharger(`${courant}.svg`, svgExporte(), "image/svg+xml"));
+$("b-png").addEventListener("click", exporterPNG);
+$("b-annuler").addEventListener("click", () => annuler(historique, refaire));
+$("b-refaire").addEventListener("click", () => annuler(refaire, historique));
+$("b-revenir").addEventListener("click", () => {
+  if (!(courant in locales) || !confirm("Oublier tes changements pour cet exercice et revenir à la version du fichier?")) return;
+  avantModif();
+  d = completer(fichier[courant] ? copie(fichier[courant]) : { vue: vueParDefaut(exercice()) });
+  selection = null;
+  $("f-vue").value = d.vue;
+  apresModif();
+});
+$("b-effacer").addEventListener("click", () => {
+  if (estVide(d) || !confirm("Effacer tous les éléments de ce diagramme? (Tu peux annuler avec Cmd/Ctrl+Z.)")) return;
+  avantModif();
+  for (const k of LISTES) d[k] = [];
+  selection = null;
+  apresModif();
+});
+$("f-exercice").addEventListener("input", (ev) => chargerExercice(ev.target.value));
+$("f-vue").addEventListener("input", (ev) => { avantModif(); d.vue = ev.target.value; apresModif(); });
+
+remplirListe();
+const demande = location.hash.slice(1);
+chargerExercice(FICHES.some((e) => e.id === demande) ? demande : Object.keys(diagrammes)[0] || EXERCICES[0].id);
+choisirOutil("choisir");
+</script>
+</body>
+</html>
