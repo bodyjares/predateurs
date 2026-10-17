@@ -16,6 +16,7 @@ const CODES = {
   "loin-du-depart": "Joueur loin du départ",
   "rondelle-creee": "Rondelle qui apparaît",
   "sans-receveur": "Passes sans receveur",
+  "synchro-cassee": "Synchronisation impossible",
 };
 
 const demandes = process.argv.slice(2);

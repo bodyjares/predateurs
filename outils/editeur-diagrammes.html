@@ -50,6 +50,7 @@
 
 <section class="entete-plan">
   <label>Exercice <select id="f-exercice"></select></label>
+  <label id="l-nom" hidden>Nom <input id="f-nom" placeholder="Nom du diagramme"></label>
   <label>Vue
     <select id="f-vue">
       <option value="zone">Zone (jusqu'à la ligne bleue)</option>
@@ -73,6 +74,7 @@
         <button data-outil="cone">Cône</button>
         <button data-outil="pile">Rondelles</button>
         <button data-outil="note">Texte</button>
+        <button data-outil="etiquette" title="Texte encadré, qui peut n'apparaître que pendant certaines étapes de l'animation">Étiquette</button>
       </div>
       <div class="groupe" aria-label="Tracer">
         <button data-outil="patin">Patin</button>
@@ -83,6 +85,9 @@
       </div>
       <div class="groupe">
         <button data-outil="etape" title="Clique sur un trajet pour lui donner le prochain numéro d'étape">① Étape</button>
+      </div>
+      <div class="groupe">
+        <button id="b-nouveau" title="Créer un diagramme qui n'est rattaché à aucun exercice">＋ Nouveau</button>
       </div>
       <div class="groupe">
         <button id="b-annuler" title="Annuler (Cmd/Ctrl+Z)">↶ Annuler</button>
@@ -109,17 +114,22 @@
     <section class="panneau" id="proprietes" aria-live="polite"></section>
 
     <section class="panneau">
-      <h2>Enregistrer</h2>
+      <h2>Fichier</h2>
       <p class="etat" id="etat"></p>
       <div class="boutons">
         <button class="principal" id="b-fichier">Enregistrer le fichier</button>
-        <button id="b-svg">Image SVG</button>
-        <button id="b-png">Image PNG</button>
+        <button id="b-charger" title="Reprendre un fichier diagrammes-donnees.js déjà enregistré">Charger un fichier</button>
       </div>
       <p class="etat" id="explication-fichier"></p>
       <div class="boutons">
+        <button id="b-svg">Image SVG</button>
+        <button id="b-png">Image PNG</button>
+        <button id="b-gif">Animation GIF</button>
+      </div>
+      <div class="boutons">
         <button id="b-revenir">Revenir à la version du fichier</button>
         <button id="b-effacer">Tout effacer</button>
+        <button id="b-supprimer-diag" hidden>Supprimer ce diagramme</button>
       </div>
       <p class="message" id="message" role="status"></p>
     </section>
@@ -131,6 +141,10 @@
         <li><strong>Tracer</strong> : choisis un type de trajet, clique pour chaque point, puis double-clique (ou <kbd>Entrée</kbd>) pour terminer. Si tu commences sur un joueur, le trajet part de lui. Une passe ou un tir est une ligne droite : 2 clics suffisent.</li>
         <li><strong>Déplacer</strong> : avec « Choisir », glisse un élément. Déplacer un joueur déplace aussi le début des trajets qui partent de lui.</li>
         <li><strong>Courbes</strong> : la ligne passe par tous ses points. Sélectionne un trajet, <strong>double-clique sur la ligne</strong> pour ajouter un point, puis glisse-le pour courber. Double-clique sur un point pour le retirer. Les passes et les tirs restent droits.</li>
+        <li><strong>Synchroniser</strong> : sélectionne un trajet, clique « Synchroniser avec… », puis clique le trajet principal. Dans l'animation, le premier partira et finira exactement en même temps que le second (sa vitesse s'ajuste).</li>
+        <li><strong>Étiquettes</strong> : un texte encadré pour une consigne (ex. : « MUR! »). Dans le panneau, tu choisis les étapes où elle apparaît pendant l'animation.</li>
+        <li><strong>Fichier</strong> : « Charger un fichier » reprend un <code>diagrammes-donnees.js</code> déjà enregistré (utile si tu changes de navigateur ou d'ordinateur). Il remplace tous les diagrammes affichés.</li>
+        <li><strong>Nouveau diagramme</strong> : « ＋ Nouveau » crée un diagramme libre, qui n'est rattaché à aucun exercice. Il apparaît dans la liste sous « Mes diagrammes ».</li>
         <li><strong>Étapes</strong> : avec « ① Étape », clique sur les trajets dans l'ordre (1, 2, 3…). Clique un numéro pour le changer ou le supprimer, glisse-le pour le déplacer le long de la ligne.</li>
         <li><kbd>Suppr</kbd> efface la sélection (ou le point choisi), les <kbd>flèches</kbd> la déplacent (<kbd>Maj</kbd> = plus loin), <kbd>Cmd/Ctrl+D</kbd> duplique, <kbd>Cmd/Ctrl+Z</kbd> annule.</li>
       </ul>
@@ -144,15 +158,16 @@
 <script src="diagrammes-donnees.js"></script>
 <script src="diagrammes.js"></script>
 <script src="animation.js"></script>
+<script src="gif.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const CLE = "hockey.diagrammes.v1";
 const NS = "http://www.w3.org/2000/svg";
 const VIOLET = "#7c3aed"; // sélection : absent des couleurs du diagramme
-const LISTES = ["joueurs", "cones", "rondelles", "trajets", "notes"];
+const LISTES = ["joueurs", "cones", "rondelles", "trajets", "notes", "etiquettes"];
 const TYPES_JOUEUR = { X: "Attaquant (X)", O: "Défenseur (O)", D: "Défenseur (D)", G: "Gardien (G)", C: "Coach (C)" };
 const TYPES_TRAJET = { patin: "Patin", arriere: "Patin arrière", rondelle: "Avec rondelle", passe: "Passe", tir: "Tir" };
-const { repere, lissage, courbable, pointsTrajet, positionNumero } = OutilsDiagramme;
+const { repere, lissage, courbable, pointsTrajet, positionNumero, largeurEtiquette } = OutilsDiagramme;
 
 const copie = (o) => JSON.parse(JSON.stringify(o));
 const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
@@ -164,10 +179,11 @@ const attr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").rep
 // Diagramme sans listes vides, pour comparer et écrire le fichier
 function nettoyer(diag) {
   const p = { vue: diag.vue || "demi" };
+  if (diag.nom) p.nom = diag.nom;
   for (const k of LISTES) if (diag[k] && diag[k].length) p[k] = copie(diag[k]);
   return p;
 }
-const estVide = (diag) => LISTES.every((k) => !diag[k] || !diag[k].length);
+const estVide = (diag) => !diag.nom && LISTES.every((k) => !diag[k] || !diag[k].length);
 function completer(diag) {
   for (const k of LISTES) diag[k] = diag[k] || [];
   return diag;
@@ -187,39 +203,53 @@ for (const [id, diag] of Object.entries(locales)) {
 
 let courant, d, calque, poignee = null;
 let outil = "choisir", selection = null, enCours = null, souris = null, glisse = null, saisie = false;
+let attenteSync = null; // index du trajet qui attend qu'on lui désigne son trajet principal
 let historique = [], refaire = [];
 
-// Une fiche = un exercice de la banque ou une situation du système de jeu
-const FICHES = [...EXERCICES, ...SITUATIONS.map((s) => ({ ...s, systeme: true }))];
-const exercice = () => FICHES.find((e) => e.id === courant);
-const vueParDefaut = (e) => (e.systeme || ["Zone", "Coin", "Cercles"].includes(e.espace) ? "zone" : e.espace === "Pleine glace" ? "pleine" : "demi");
-const optionsDessin = () => ({ titre: exercice().nom, noms: exercice().systeme ? NOMS_SYSTEME : undefined });
+// Une fiche = un exercice de la banque, une situation du système de jeu, ou un diagramme libre
+// (un diagramme libre est simplement un diagramme qui porte un « nom » : il n'a pas d'exercice derrière lui)
+// NB : un exercice porte déjà un champ « systeme » (texte du lien avec le système de jeu).
+// Les situations sont donc marquées « situation », sans quoi les deux se confondraient.
+const FICHES_FIXES = [...EXERCICES, ...SITUATIONS.map((s) => ({ ...s, situation: true }))];
+let FICHES = FICHES_FIXES;
+function majFiches() {
+  // Tout diagramme qui ne correspond à aucun exercice est « libre » : il porte un nom, ou à défaut son code
+  const libres = Object.entries(diagrammes)
+    .filter(([id, x]) => x && !FICHES_FIXES.some((f) => f.id === id))
+    .map(([id, x]) => ({ id, nom: x.nom || id, libre: true }));
+  FICHES = [...FICHES_FIXES, ...libres];
+}
+const exercice = () => FICHES.find((e) => e.id === courant) || { id: courant, nom: d?.nom || courant, libre: true };
+const vueParDefaut = (e) => (e.libre ? "demi" : e.situation || ["Zone", "Coin", "Cercles"].includes(e.espace) ? "zone" : e.espace === "Pleine glace" ? "pleine" : "demi");
+const optionsDessin = () => {
+  const e = exercice();
+  return { titre: e.libre ? d.nom || "Diagramme" : e.nom, noms: e.situation ? NOMS_SYSTEME : undefined };
+};
 
 // ─── Liste des exercices ───
-function remplirListe() {
-  for (const [cat, info] of Object.entries(CATEGORIES)) {
-    const groupe = document.createElement("optgroup");
-    groupe.label = info.nom;
-    for (const e of EXERCICES.filter((x) => x.categorie === cat)) groupe.appendChild(new Option("", e.id));
-    $("f-exercice").appendChild(groupe);
-  }
-  for (const [equipe, info] of Object.entries(EQUIPES)) {
-    const groupe = document.createElement("optgroup");
-    groupe.label = `Système de jeu ${info.nom}`;
-    for (const s of SITUATIONS.filter((x) => x.equipe === equipe)) groupe.appendChild(new Option("", s.id));
-    $("f-exercice").appendChild(groupe);
-  }
-  majListe();
-}
 function majListe() {
-  for (const o of $("f-exercice").options) {
-    const e = FICHES.find((x) => x.id === o.value);
-    o.textContent = `${e.systeme ? `Phase ${e.phase}` : e.id} – ${e.nom}${diagrammes[e.id] ? "  ●" : ""}${e.id in locales ? " (modifié)" : ""}`;
-  }
+  const liste = $("f-exercice"), choisi = courant || liste.value;
+  liste.innerHTML = "";
+  const groupe = (titre, fiches) => {
+    if (!fiches.length) return;
+    const g = document.createElement("optgroup");
+    g.label = titre;
+    for (const e of fiches) {
+      const etiquette = `${e.libre ? "Diagramme" : e.situation ? `Phase ${e.phase}` : e.id} – ${e.nom}` +
+        `${diagrammes[e.id] ? "  ●" : ""}${e.id in locales ? " (modifié)" : ""}`;
+      g.appendChild(new Option(etiquette, e.id));
+    }
+    liste.appendChild(g);
+  };
+  for (const [cat, info] of Object.entries(CATEGORIES)) groupe(info.nom, EXERCICES.filter((x) => x.categorie === cat));
+  for (const [equipe, info] of Object.entries(EQUIPES)) groupe(`Système de jeu ${info.nom}`, SITUATIONS.filter((x) => x.equipe === equipe).map((s) => ({ ...s, situation: true })));
+  groupe("Mes diagrammes", FICHES.filter((e) => e.libre));
+  if (choisi) liste.value = choisi;
 }
 
 function chargerExercice(id) {
   if (enCours) enCours = null;
+  attenteSync = null;
   courant = id;
   const e = exercice();
   d = completer(diagrammes[id] ? copie(diagrammes[id]) : { vue: vueParDefaut(e) });
@@ -227,7 +257,15 @@ function chargerExercice(id) {
   $("f-exercice").value = id;
   $("f-vue").value = d.vue;
   history.replaceState(null, "", "#" + id);
-  if (e.systeme) {
+  $("l-nom").hidden = !e.libre;
+  $("b-supprimer-diag").hidden = !e.libre;
+  if (e.libre) $("f-nom").value = d.nom || "";
+  if (e.libre) {
+    $("i-nom").textContent = d.nom || courant;
+    $("i-meta").textContent = "Diagramme libre (rattaché à aucun exercice)";
+    $("i-org").textContent = "Il s'enregistre dans le fichier des diagrammes avec les autres. Tu peux l'exporter en SVG, PNG ou GIF.";
+    $("i-der").innerHTML = "";
+  } else if (e.situation) {
     $("i-nom").textContent = e.nom;
     $("i-meta").textContent = `Système de jeu ${EQUIPES[e.equipe].nom} · phase ${e.phase}`;
     $("i-org").textContent = `Illustre la section « ${e.section} » de ${EQUIPES[e.equipe].nom}/systeme-de-jeu.md. X = notre équipe, O = l'adversaire.`;
@@ -268,6 +306,7 @@ function majBoutonsHistorique() {
 
 // Garde le diagramme dans le navigateur tant qu'il diffère du fichier
 function memoriser() {
+  majFiches();
   const propre = nettoyer(d);
   const vide = estVide(propre);
   if (vide) delete diagrammes[courant]; else diagrammes[courant] = copie(propre);
@@ -309,7 +348,21 @@ function dessiner() {
       const w = largeurNote(o);
       calque.appendChild(el("rect", { x: o.x - w / 2 - 0.6, y: o.y - 2.2, width: w + 1.2, height: 3.2, rx: 0.4, ...trait }));
     }
-    if (selection.genre === "trajets") poignees(o.points, selection.point);
+    if (selection.genre === "etiquettes") {
+      const w = largeurEtiquette(o);
+      calque.appendChild(el("rect", { x: o.x - w / 2 - 0.7, y: o.y - 2.9, width: w + 1.4, height: 5.8, rx: 0.9, ...trait }));
+    }
+    if (selection.genre === "trajets") {
+      poignees(o.points, selection.point);
+      // Lien vers le trajet principal : trait pointillé entre les deux milieux
+      const ref = o.synchro != null && d.trajets[o.synchro] ? d.trajets[o.synchro] : null;
+      if (ref) {
+        const milieu = (t) => { const pts = lissage(t); return pts[Math.floor(pts.length / 2)]; };
+        const [a, b] = [milieu(o), milieu(ref)];
+        calque.appendChild(el("line", { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: VIOLET, "stroke-width": 0.25, "stroke-dasharray": "1.2 0.8", opacity: 0.85 }));
+        calque.appendChild(el("circle", { cx: b[0], cy: b[1], r: 1.2, fill: "#fff", stroke: VIOLET, "stroke-width": 0.35 }));
+      }
+    }
   }
   if (enCours) poignees(enCours.points, null);
 }
@@ -344,6 +397,9 @@ function toucher(p) {
     return meilleur;
   };
   let i;
+  // Les étiquettes sont dessinées par-dessus le reste : on les attrape en premier
+  i = d.etiquettes.findIndex((e) => Math.abs(p[0] - e.x) < largeurEtiquette(e) / 2 && Math.abs(p[1] - e.y) < 2.2);
+  if (i >= 0) return { genre: "etiquettes", index: i };
   if ((i = plusProche(d.joueurs, (j) => [j.x, j.y], 2.6)) >= 0) return { genre: "joueurs", index: i };
   if ((i = plusProche(d.trajets, (t) => (aNumero(t) ? positionNumero(t, d.joueurs) : [Infinity, Infinity]), 1.9)) >= 0) return { genre: "numero", index: i };
   i = d.notes.findIndex((n) => Math.abs(p[0] - n.x) < largeurNote(n) / 2 + 0.6 && p[1] > n.y - 2.2 && p[1] < n.y + 1);
@@ -368,12 +424,15 @@ function placerNumero(t, p) {
   if (cote < 0) t.coteNumero = -1; else delete t.coteNumero;
 }
 
+const numerosEtapes = () => [...new Set(d.trajets.filter(aNumero).map((t) => String(t.numero)))]
+  .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+
 const joueurProche = (p) => d.joueurs.find((j) => dist([j.x, j.y], p) < 2.6);
 
 function deplacer(genre, orig, dx, dy) {
   const { x0, x1 } = repere(d.vue);
   const q = (x, y) => [arr(borner(x + dx, x0, x1)), arr(borner(y + dy, 0, 85))];
-  if (genre === "joueurs" || genre === "notes") { const [x, y] = q(orig.x, orig.y); return { ...orig, x, y }; }
+  if (genre === "joueurs" || genre === "notes" || genre === "etiquettes") { const [x, y] = q(orig.x, orig.y); return { ...orig, x, y }; }
   if (genre === "trajets") return { ...orig, points: orig.points.map(([x, y]) => q(x, y)) };
   return q(orig[0], orig[1]);
 }
@@ -382,6 +441,24 @@ const scene = $("scene");
 scene.addEventListener("pointerdown", (ev) => {
   if (ev.button !== 0) return;
   const p = position(ev);
+  // En attente du trajet principal d'une synchronisation : ce clic le désigne
+  if (attenteSync !== null) {
+    const vise = toucher(p), i = attenteSync;
+    attenteSync = null;
+    scene.style.cursor = "";
+    // « point » = une poignée du trajet sélectionné : ça désigne quand même son trajet
+    if (!vise || !["trajets", "numero", "point"].includes(vise.genre)) message("Synchronisation annulée : il faut cliquer sur un trajet.");
+    else if (vise.index === i) message("Choisis un autre trajet que celui-là.");
+    else {
+      avantModif();
+      d.trajets[i].synchro = vise.index;
+      selection = { genre: "trajets", index: i };
+      apresModif();
+      return message(`Trajet ${i + 1} synchronisé avec le trajet ${vise.index + 1} : même départ, même durée.`);
+    }
+    dessiner(); panneau();
+    return;
+  }
   scene.setPointerCapture(ev.pointerId);
   if (outil === "choisir") {
     const t = toucher(p);
@@ -502,12 +579,40 @@ $("b-animer").addEventListener("click", () => {
 });
 
 function choisirOutil(o) {
+  attenteSync = null;
   if (lecteur) { quitterApercu(); dessiner(); }
   if (enCours) terminerTrajet();
   outil = o;
   for (const b of document.querySelectorAll("[data-outil]")) b.setAttribute("aria-pressed", b.dataset.outil === o);
   scene.classList.toggle("placer", o !== "choisir");
   scene.style.cursor = "";
+}
+
+function nouveauDiagramme() {
+  const nom = (prompt("Nom du nouveau diagramme :", "Nouveau diagramme") || "").trim();
+  if (!nom) return;
+  let n = 1;
+  while (FICHES.some((f) => f.id === `LIBRE${n}`) || fichier[`LIBRE${n}`]) n++;
+  const id = `LIBRE${n}`;
+  diagrammes[id] = { vue: "demi", nom };
+  majFiches(); majListe();
+  chargerExercice(id);
+  memoriser();
+  choisirOutil("choisir");
+  $("f-nom").focus(); $("f-nom").select();
+  message(`« ${nom} » créé. Clique « Enregistrer le fichier » pour le garder pour de bon.`);
+}
+
+function supprimerDiagramme() {
+  const e = exercice();
+  if (!e.libre) return;
+  if (!confirm(`Supprimer « ${e.nom} » au complet? (Tu ne pourras pas annuler.)`)) return;
+  delete diagrammes[courant];
+  if (fichier[courant]) locales[courant] = null; else delete locales[courant];
+  localStorage.setItem(CLE, JSON.stringify(locales));
+  majFiches(); majListe(); majEtat();
+  chargerExercice(FICHES.some((f) => f.id === EXERCICES[0].id) ? EXERCICES[0].id : FICHES[0].id);
+  message(`« ${e.nom} » supprimé.`);
 }
 
 function placer(type, p) {
@@ -517,8 +622,9 @@ function placer(type, p) {
   if (type === "cone") { d.cones.push([x, y]); selection = { genre: "cones", index: d.cones.length - 1 }; }
   if (type === "pile") { d.rondelles.push([x, y]); selection = { genre: "rondelles", index: d.rondelles.length - 1 }; }
   if (type === "note") { d.notes.push({ x, y, texte: "Texte" }); selection = { genre: "notes", index: d.notes.length - 1 }; choisirOutil("choisir"); }
+  if (type === "etiquette") { d.etiquettes.push({ x, y, texte: "CONSIGNE" }); selection = { genre: "etiquettes", index: d.etiquettes.length - 1 }; choisirOutil("choisir"); }
   apresModif();
-  if (type === "note") { const champ = document.querySelector('[data-prop="texte"]'); champ.focus(); champ.select(); }
+  if (type === "note" || type === "etiquette") { const champ = document.querySelector('[data-prop="texte"]'); champ.focus(); champ.select(); }
 }
 
 function terminerTrajet() {
@@ -560,7 +666,14 @@ function supprimer() {
   if (!selection) return;
   if (selection.genre === "numero") return actions.supprimerEtape();
   avantModif();
-  d[selection.genre].splice(selection.index, 1);
+  const { genre, index } = selection;
+  d[genre].splice(index, 1);
+  // Les synchronisations renvoient à des numéros de trajets : on les recale
+  if (genre === "trajets") for (const t of d.trajets) {
+    if (t.synchro == null) continue;
+    if (t.synchro === index) delete t.synchro;
+    else if (t.synchro > index) t.synchro--;
+  }
   selection = null;
   apresModif();
 }
@@ -602,9 +715,31 @@ const actions = {
     selection = { genre: "trajets", index: selection.index };
     apresModif();
   },
+  synchroniser: () => {
+    attenteSync = selection.index;
+    scene.style.cursor = "crosshair";
+    message(`Clique le trajet principal : le trajet ${selection.index + 1} partira et finira avec lui. (Échap pour annuler.)`);
+    panneau();
+  },
+  desynchroniser: () => { avantModif(); delete d.trajets[selection.index].synchro; apresModif(); },
   voirTrajet: () => { selection = { genre: "trajets", index: selection.index }; dessiner(); panneau(); },
   inverser: () => { avantModif(); d.trajets[selection.index].points.reverse(); selection.point = null; apresModif(); },
 };
+
+// Bloc « synchronisation » du panneau d'un trajet
+function lienSynchro(o) {
+  if (attenteSync === selection.index) {
+    return `<p class="meta"><strong>Clique le trajet principal</strong> sur le diagramme : ce trajet partira et finira en même temps que lui. <kbd>Échap</kbd> pour annuler.</p>`;
+  }
+  const ref = o.synchro != null && d.trajets[o.synchro] ? d.trajets[o.synchro] : null;
+  if (ref) {
+    return `<p class="meta">Synchronisé avec le <strong>trajet ${o.synchro + 1}</strong> (${TYPES_TRAJET[ref.type]}) : même départ et même durée, dans la même étape.</p>
+      <div class="boutons"><button data-action="synchroniser">Changer le trajet principal</button><button data-action="desynchroniser">Enlever</button></div>`;
+  }
+  if (d.trajets.length < 2) return "";
+  return `<div class="boutons"><button data-action="synchroniser">Synchroniser avec…</button></div>
+    <p class="meta">Pour qu'il parte et finisse en même temps qu'un autre trajet.</p>`;
+}
 
 // ─── Panneau des propriétés ───
 const options = (types, valeur) => Object.entries(types).map(([v, nom]) => `<option value="${v}"${v === valeur ? " selected" : ""}>${nom}</option>`).join("");
@@ -647,9 +782,20 @@ function panneau() {
       <p class="meta">${courbe
         ? `${o.points.length} points. Double-clique sur la ligne pour ajouter un point, glisse un point pour courber, double-clique sur un point pour le retirer.`
         : "Une passe ou un tir reste droit : glisse ses extrémités."}</p>
-      <div class="boutons">${courbe ? `<button data-action="ajouterPoint">Ajouter un point</button>` : ""}${point}<button data-action="inverser">Inverser le sens</button></div>`;
+      <div class="boutons">${courbe ? `<button data-action="ajouterPoint">Ajouter un point</button>` : ""}${point}<button data-action="inverser">Inverser le sens</button></div>
+      ${lienSynchro(o)}`;
   } else if (selection.genre === "notes") {
     h = `<h2>Texte</h2><label>Texte <input data-prop="texte" value="${attr(o.texte)}"></label>`;
+  } else if (selection.genre === "etiquettes") {
+    const nums = numerosEtapes();
+    const choix = (valeur, premier) => `<option value=""${valeur == null || valeur === "" ? " selected" : ""}>${premier}</option>` +
+      nums.map((n) => `<option value="${attr(n)}"${String(valeur) === n ? " selected" : ""}>Étape ${attr(n)}</option>`).join("");
+    h = `<h2>Étiquette</h2>
+      <label>Texte <input data-prop="texte" value="${attr(o.texte)}"></label>
+      ${nums.length ? `<label>Apparaît à partir de <select data-prop="de">${choix(o.de, "La 1re étape")}</select></label>
+      <label>Disparaît après <select data-prop="a">${choix(o.a, "La dernière étape")}</select></label>
+      <p class="meta">Pendant l'animation, l'étiquette ne s'affiche que de l'étape choisie jusqu'à l'autre. Sur le diagramme fixe (banque, impression), elle s'affiche toujours.</p>`
+        : `<p class="meta">Numérote des trajets avec « ① Étape » pour pouvoir n'afficher cette étiquette que pendant certaines étapes.</p>`}`;
   } else {
     h = `<h2>${selection.genre === "cones" ? "Cône" : "Pile de rondelles"}</h2>`;
   }
@@ -664,7 +810,7 @@ $("proprietes").addEventListener("input", (ev) => {
   // Étape sélectionnée : un champ vide ne la supprime pas (bouton « Supprimer l'étape »)
   if (cle === "numero" && selection.genre === "numero" && v.trim() === "") return;
   if (!saisie) { avantModif(); saisie = true; } // une seule étape d'annulation par champ modifié
-  if (cle === "numero") v = v.trim() === "" ? "" : /^\d+$/.test(v.trim()) ? Number(v) : v.trim();
+  if (["numero", "de", "a"].includes(cle)) v = v.trim() === "" ? "" : /^\d+$/.test(v.trim()) ? Number(v) : v.trim();
   if (cle === "depuisJoueur") v = v ? "" : false; // « oui » est la valeur par défaut
   if (cle === "forme" && v === "courbe") v = "";
   if (v === "" || (v === false && cle !== "depuisJoueur")) delete o[cle]; else o[cle] = v;
@@ -688,6 +834,13 @@ document.addEventListener("keydown", (ev) => {
   if (cmd && ev.key.toLowerCase() === "y" && !champ) { ev.preventDefault(); annuler(refaire, historique); return; }
   if (champ) { if (ev.key === "Escape") ev.target.blur(); return; }
   if (cmd && ev.key.toLowerCase() === "d") { ev.preventDefault(); dupliquer(); return; }
+  if (ev.key === "Escape" && attenteSync !== null) {
+    attenteSync = null;
+    scene.style.cursor = "";
+    message("Synchronisation annulée.");
+    panneau();
+    return;
+  }
   if (ev.key === "Escape") {
     if (enCours) actions.annulerTrajet();
     else if (outil !== "choisir") choisirOutil("choisir");
@@ -721,6 +874,7 @@ function contenuFichier() {
     const p = nettoyer(diagrammes[id]);
     if (estVide(p)) continue;
     s += `  ${id}: {\n    vue: ${js(p.vue)},\n`;
+    if (p.nom) s += `    nom: ${js(p.nom)},\n`;
     for (const k of LISTES) if (p[k]) s += `    ${k}: [\n${p[k].map((v) => `      ${js(v)},`).join("\n")}\n    ],\n`;
     s += "  },\n";
   }
@@ -733,6 +887,81 @@ function telecharger(nom, contenu, type) {
   a.download = nom;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Le fichier est du JavaScript : on l'exécute dans une fonction isolée (sans « module ») et on récupère DIAGRAMMES
+function lireFichier(texte) {
+  // Les DIAGRAMMES de la page : si le fichier n'a pas les siens, le nom se résoudrait sur ceux-là
+  const ceuxDeLaPage = typeof DIAGRAMMES !== "undefined" ? DIAGRAMMES : null;
+  let obj;
+  try {
+    obj = new Function("module", "exports", `${texte}\n;return typeof DIAGRAMMES !== "undefined" ? DIAGRAMMES : null;`)(undefined, undefined);
+  } catch (e) {
+    throw new Error(`le fichier n'est pas lisible (${e.message})`);
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj) || obj === ceuxDeLaPage) throw new Error("le fichier ne contient pas de DIAGRAMMES");
+  if (!Object.keys(obj).length) throw new Error("le fichier ne contient aucun diagramme");
+  for (const [id, x] of Object.entries(obj)) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) throw new Error(`« ${id} » n'est pas un diagramme`);
+    for (const k of LISTES) if (x[k] !== undefined && !Array.isArray(x[k])) throw new Error(`« ${id} » : « ${k} » devrait être une liste`);
+  }
+  return obj;
+}
+
+function choisirFichierLocal() {
+  return new Promise((ok) => {
+    const champ = document.createElement("input");
+    champ.type = "file";
+    champ.accept = ".js,text/javascript";
+    champ.onchange = () => ok(champ.files[0] || null);
+    champ.oncancel = () => ok(null);
+    champ.click();
+  });
+}
+
+async function chargerFichier() {
+  const enAttente = Object.keys(locales);
+  if (enAttente.length && !confirm(`Charger un fichier remplace tous les diagrammes affichés.\n\nTes changements pas encore enregistrés seront perdus : ${enAttente.join(", ")}.\n\nContinuer?`)) return;
+  let texte, nom, nouvelle = null;
+  try {
+    if (window.showOpenFilePicker) {
+      const [h] = await showOpenFilePicker({ types: [{ description: "JavaScript", accept: { "text/javascript": [".js"] } }] });
+      texte = await (await h.getFile()).text();
+      nom = h.name;
+      nouvelle = h; // les prochains enregistrements réécriront dans ce fichier
+    } else {
+      const f = await choisirFichierLocal();
+      if (!f) return;
+      texte = await f.text();
+      nom = f.name;
+    }
+  } catch (e) {
+    if (e.name !== "AbortError") message("Erreur : " + e.message);
+    return;
+  }
+  let charges;
+  try {
+    charges = lireFichier(texte);
+  } catch (e) {
+    return message(`Impossible de charger ${nom} : ${e.message}`);
+  }
+  // Comparaison avant de remplacer, pour dire ce qui change
+  const avant = copie(diagrammes);
+  const nouveaux = Object.keys(charges).filter((id) => !avant[id]).length;
+  const differents = Object.keys(charges).filter((id) => avant[id] && stable(nettoyer(charges[id])) !== stable(nettoyer(avant[id]))).length;
+  const disparus = Object.keys(avant).filter((id) => !charges[id]).length;
+
+  fichier = copie(charges);
+  diagrammes = copie(charges);
+  locales = {};
+  localStorage.setItem(CLE, "{}");
+  if (nouvelle) poignee = nouvelle;
+  majFiches(); majListe();
+  const connu = diagrammes[courant] || FICHES.some((f) => f.id === courant);
+  const cible = connu ? courant : Object.keys(diagrammes)[0] || EXERCICES[0].id;
+  chargerExercice(cible);
+  const details = [nouveaux && `${nouveaux} nouveau${nouveaux > 1 ? "x" : ""}`, differents && `${differents} différent${differents > 1 ? "s" : ""}`, disparus && `${disparus} retiré${disparus > 1 ? "s" : ""}`].filter(Boolean);
+  message(`${nom} chargé : ${Object.keys(charges).length} diagrammes${details.length ? ` (${details.join(", ")})` : " (identiques)"}.`);
 }
 
 async function enregistrerFichier() {
@@ -792,6 +1021,39 @@ function exporterPNG() {
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgExporte().replace("<svg ", `<svg width="${w}" height="${h}" `));
 }
 
+async function exporterGIF() {
+  const b = $("b-gif");
+  if (b.disabled) return;
+  const avant = b.textContent;
+  b.disabled = true;
+  b.textContent = "GIF… 0 %";
+  try {
+    const blob = await AnimationDiagramme.gif(nettoyer(d), {
+      ...optionsDessin(),
+      progres: (part) => { b.textContent = `GIF… ${Math.round(part * 100)} %`; },
+    });
+    telecharger(`${courant}.gif`, blob);
+    message(`GIF enregistré (${Math.round(blob.size / 1024)} ko).`);
+  } catch (e) {
+    message("GIF impossible : " + e.message);
+  } finally {
+    b.disabled = false;
+    b.textContent = avant;
+  }
+}
+
+$("b-charger").addEventListener("click", chargerFichier);
+$("b-nouveau").addEventListener("click", nouveauDiagramme);
+$("b-supprimer-diag").addEventListener("click", supprimerDiagramme);
+$("b-gif").addEventListener("click", exporterGIF);
+$("f-nom").addEventListener("input", (ev) => {
+  if (!saisie) { avantModif(); saisie = true; }
+  d.nom = ev.target.value.trim() || "Sans titre";
+  apresModif({ majPanneau: false });
+  majListe();
+  $("i-nom").textContent = d.nom;
+});
+$("f-nom").addEventListener("change", () => { saisie = false; });
 $("b-fichier").addEventListener("click", enregistrerFichier);
 $("b-svg").addEventListener("click", () => telecharger(`${courant}.svg`, svgExporte(), "image/svg+xml"));
 $("b-png").addEventListener("click", exporterPNG);
@@ -815,7 +1077,8 @@ $("b-effacer").addEventListener("click", () => {
 $("f-exercice").addEventListener("input", (ev) => chargerExercice(ev.target.value));
 $("f-vue").addEventListener("input", (ev) => { avantModif(); d.vue = ev.target.value; apresModif(); });
 
-remplirListe();
+majFiches();
+majListe();
 const demande = location.hash.slice(1);
 chargerExercice(FICHES.some((e) => e.id === demande) ? demande : Object.keys(diagrammes)[0] || EXERCICES[0].id);
 choisirOutil("choisir");

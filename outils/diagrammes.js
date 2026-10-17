@@ -15,7 +15,8 @@
 //                 Les passes et les tirs sont toujours droits (premier → dernier point).
 //   cones:     [[x, y], ...],
 //   rondelles: [[x, y], ...],   // pile de rondelles
-//   notes:     [{ x, y, texte }]
+//   notes:     [{ x, y, texte }],
+//   etiquettes:[{ x, y, texte, de?, a? }]   // texte encadré ; de/a = numéros d'étapes où il s'affiche (animation)
 // }
 // Options de dessinerDiagramme : { titre?, legende?: false, noms?: { X, O } (légende des joueurs) }
 
@@ -30,6 +31,7 @@
     encre: "#0b0b0b",
     muet: "#898781",
     filet: "#f47a20",
+    etiquette: "#f1efe9",
   };
   const VUES = { zone: [0, 80], demi: [0, 100], pleine: [0, 200] };
   const E = 8; // pixels par pied
@@ -203,6 +205,16 @@
     return rondelles.map((p) => `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(0.55)}" fill="${COULEURS.encre}"/>`).join("");
   }
 
+  // Étiquette encadrée : consigne qui s'affiche sur la glace (et pendant l'animation, voir animation.js)
+  const POLICE = `font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"`;
+  const largeurEtiquette = (e) => Math.max(5, String(e.texte).length * 1.32 + 2.6);
+  function etiquette(e) {
+    const l = largeurEtiquette(e), h = 4.4;
+    return `<rect x="${f(e.x - l / 2)}" y="${f(e.y - h / 2)}" width="${f(l)}" height="${f(h)}" rx="${f(0.9)}" ` +
+      `fill="${COULEURS.etiquette}" stroke="${COULEURS.bande}" stroke-width="1.6"/>` +
+      `<text x="${f(e.x)}" y="${f(e.y)}" dy="0.36em" text-anchor="middle" font-size="${f(2.4)}" font-weight="700" ${POLICE} fill="${COULEURS.encre}">${e.texte}</text>`;
+  }
+
   // Filet vu de haut : poteaux sur la ligne des buts, base arrondie de 3,7 pi de profondeur, mailles
   function filet(xg, sens) {
     const X = (dx) => f(xg - sens * dx), Y = f;
@@ -298,6 +310,7 @@
     (d.trajets || []).forEach((t, i) => { s += `<g class="trajet" data-i="${i}">${trajet(t, t.couleur || COULEURS.encre, d.joueurs || [])}</g>`; });
     (d.trajets || []).forEach((t, i) => { if (t.numero) s += `<g class="numero" data-i="${i}">${numeroEtape(t, d.joueurs || [])}</g>`; });
     (d.joueurs || []).forEach((j, i) => { s += `<g class="joueur" data-i="${i}">${joueur(j)}</g>`; });
+    (d.etiquettes || []).forEach((e, i) => { s += `<g class="etiquette" data-i="${i}">${etiquette(e)}</g>`; });
     for (const n of d.notes || []) s += `<text x="${f(n.x)}" y="${f(n.y)}" text-anchor="middle" font-family="system-ui, sans-serif" font-size="${f(2)}" fill="${COULEURS.encre}" font-style="italic">${n.texte}</text>`;
     s += "</g>";
     if (options.legende !== false) s += legende(largeur, hauteurGlace + 18, types, options.noms);
@@ -315,6 +328,6 @@
 
   racine.dessinerDiagramme = dessinerDiagramme;
   racine.diagrammeDe = diagrammeDe;
-  racine.OutilsDiagramme = { repere, lissage, courbable, pointsTrajet, positionNumero, VUES };
-  if (typeof module !== "undefined") module.exports = { dessinerDiagramme, repere, lissage, courbable, pointsTrajet, positionNumero };
+  racine.OutilsDiagramme = { repere, lissage, courbable, pointsTrajet, positionNumero, largeurEtiquette, VUES };
+  if (typeof module !== "undefined") module.exports = { dessinerDiagramme, repere, lissage, courbable, pointsTrajet, positionNumero, largeurEtiquette };
 })(typeof window !== "undefined" ? window : globalThis);

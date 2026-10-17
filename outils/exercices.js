@@ -1060,6 +1060,37 @@ const EXERCICES = [
     pointsCles: ["Maximum 2-3 arrêts", "Renforcer le positif", "Mots-clés sur la glace"],
     progression: ["Aucun arrêt : les joueurs s'ajustent eux-mêmes (phase 3)"],
   },
+  {
+    id: "TC19",
+    nom: "Repli, revirement et montée rapide (en continu)",
+    categorie: "TC",
+    equipes: ["M15"],
+    duree: 8,
+    espace: "Pleine glace",
+    iq: false,
+    themes: ["Repli", "Transition", "Jeu sans rondelle", "Tir"],
+    objectif: "Enchaîner le repli (rattraper et lever le bâton), le revirement et la montée immédiate de l'autre côté.",
+    organisation: "Pleine glace, 2 gardiens. Dans chaque coin (en diagonale) : une file d'attaquants avec rondelles et une file de défenseurs. Un joueur attend au centre, le long de la bande. Les 2 coins partent en même temps, en sens inverse.",
+    deroulement: [
+      "L'attaquant monte le long du mur. Le défenseur part derrière lui et le rattrape (repli).",
+      "À la ligne bleue, le défenseur lève le bâton de l'attaquant et prend la rondelle.",
+      "Il l'emmène vers le milieu pendant que l'attaquant dépouillé continue au centre : c'est lui qui recevra la prochaine montée.",
+      "Passe longue au joueur du centre, qui la reçoit en mouvement et monte seul au filet opposé.",
+      "Tir, puis il prend son propre retour avant de revenir à la file.",
+      "Le passeur suit le jeu et revient dans le coin. Départ suivant dès que le centre est libre.",
+    ],
+    pointsCles: [
+      "Repli par le MILIEU, tête sur l'épaule",
+      "Lever le bâton, ne pas donner de coup de corps",
+      "Recevoir la passe en mouvement, sans ralentir",
+      "Prendre son retour : le jeu n'est pas fini après le tir",
+    ],
+    progression: [
+      "Le défenseur a le droit de jouer le corps (1c1 réel jusqu'à la ligne bleue)",
+      "2 attaquants contre 1 défenseur sur la montée",
+    ],
+    systeme: "M15 – Phase 1 – Repli",
+  },
 ];
 
 // Pour usage dans Node (tests, conversion) sans briser le navigateur

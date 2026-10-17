@@ -1,5 +1,6 @@
 // Animation des diagrammes : fait jouer les étapes (numéros) d'un diagramme, avec un lecteur.
 // Navigateur : AnimationDiagramme.creer(conteneur, diagramme, { titre?, noms?, auto? }) → { jouer, pause, aller, detruire, plan }
+//              AnimationDiagramme.gif(diagramme, { titre?, noms?, fps?, largeurMax?, progres? }) → Blob (voir gif.js)
 // Node : planifier(diagramme) calcule la ligne du temps sans DOM (sert à verifier-animations.js).
 //
 // Règles de lecture d'un diagramme :
@@ -16,6 +17,9 @@
 //   - Une passe qui part d'un point de mise au jeu sans rondelle est une mise au jeu. Un joueur qui arrive sur
 //     la ligne d'une passe (dans la même étape) l'intercepte. À la fin de son trajet, un joueur ramasse une
 //     rondelle libre à moins de 8 pi (rondelle envoyée en profondeur).
+//   - « synchro » sur un trajet (réglé dans l'éditeur) le fait partir et finir exactement avec un autre
+//     trajet : il joue dans la même étape que lui, et sa durée devient celle de l'autre.
+//   - Une étiquette encadrée s'affiche pendant les étapes choisies (champs « de » et « a »), ou tout le temps.
 //   - Un patin est coupé là où une passe d'une étape suivante part ou arrive en plein trajet (passes en mouvement).
 //   - Vitesses à 1× (pi/s) : patin 15, arrière 10, avec rondelle 13, passe 50, tir 80.
 
@@ -79,16 +83,53 @@
     const valides = trajets.map((t, i) => i).filter((i) => (trajets[i].points || []).length >= 2);
     const numeros = [...new Set(valides.map((i) => numeroDe(trajets[i])).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+    // Synchronisation demandée dans l'éditeur : « synchro » renvoie à l'index d'un autre trajet.
+    // Le trajet part et finit en même temps que celui-là (et joue donc dans la même étape).
+    const synchroDe = {};
+    for (const i of valides) {
+      const v = trajets[i].synchro;
+      if (v === undefined || v === null || v === "") continue;
+      const m = Number(v);
+      if (m === i) { avertir("synchro-cassee", i, `${nom(i)} : synchronisé avec lui-même`); continue; }
+      if (!Number.isInteger(m) || m < 0 || m >= trajets.length || !valides.includes(m)) {
+        avertir("synchro-cassee", i, `${nom(i)} : le trajet de référence (${v}) n'existe pas`);
+        continue;
+      }
+      synchroDe[i] = m;
+    }
+    // Une chaîne qui boucle (A sur B, B sur A) n'a pas de sens : on la coupe
+    for (const i of Object.keys(synchroDe).map(Number)) {
+      const vus = new Set([i]);
+      let j = synchroDe[i];
+      while (j !== undefined && !vus.has(j)) { vus.add(j); j = synchroDe[j]; }
+      if (j !== undefined) {
+        avertir("synchro-cassee", i, `${nom(i)} : la synchronisation tourne en rond`);
+        delete synchroDe[i];
+      }
+    }
+
     const etapeDe = {}, options = new Set();
     for (const i of valides) {
       const n = numeroDe(trajets[i]);
-      if (!n && numeros.length && !MOUVEMENTS.has(trajets[i].type)) {
+      if (!n && numeros.length && !MOUVEMENTS.has(trajets[i].type) && synchroDe[i] === undefined) {
         options.add(i);
         avertir("trajet-sans-numero", i, `${nom(i)} sans numéro : affiché comme option, sans animation`);
         continue;
       }
       etapeDe[i] = n ? numeros.indexOf(n) : 0;
     }
+    // Un trajet synchronisé joue dans l'étape de sa référence (en suivant la chaîne)
+    for (let n = 0; n <= valides.length; n++) {
+      let change = false;
+      for (const i of valides) {
+        const m = synchroDe[i];
+        if (m === undefined || etapeDe[m] === undefined || etapeDe[i] === etapeDe[m]) continue;
+        etapeDe[i] = etapeDe[m];
+        change = true;
+      }
+      if (!change) break;
+    }
+
     // Un mouvement sans numéro joue avec la première étape (ex. : les D qui reculent). À vérifier seulement
     // s'il part ou arrive là où commence ou finit un trajet d'une étape suivante (il devrait alors s'y enchaîner).
     for (const i of valides) {
@@ -109,7 +150,7 @@
     for (const i of valides) {
       if (options.has(i)) continue;
       const t = trajets[i], e = etapeDe[i];
-      if (!MOUVEMENTS.has(t.type)) { ajouterUnite(i, t, 0, 1, e, 0); continue; }
+      if (!MOUVEMENTS.has(t.type) || synchroDe[i] !== undefined) { ajouterUnite(i, t, 0, 1, e, 0); continue; }
       const pts = O.lissage(t), L = longueurs(pts), tot = L[L.length - 1];
       const coupes = [];
       for (const j of lances) {
@@ -198,8 +239,15 @@
       };
       const estMouvement = (j) => MOUVEMENTS.has(tr(j).type), estPasse = (j) => tr(j).type === "passe";
 
-      // Dépendances : unité qui doit finir avant (pred) et mouvement avec lequel une passe arrive (synchro)
-      const pred = {}, synchro = {}, interceptions = {};
+      // Dépendances : unité qui doit finir avant (pred), mouvement avec lequel une passe arrive (arriveeAvec),
+      // et unités de référence d'une synchronisation demandée dans l'éditeur (attaches)
+      const pred = {}, arriveeAvec = {}, interceptions = {}, attaches = {};
+      for (const i of idx) {
+        const ref = synchroDe[unites[i].src];
+        if (ref === undefined) continue;
+        const cibles = parties[ref].filter((u) => idx.includes(u));
+        if (cibles.length) attaches[i] = cibles;
+      }
       const atteint = (i, cible) => {
         const vus = new Set(), pile = [i];
         while (pile.length) {
@@ -207,7 +255,7 @@
           if (j === cible) return true;
           if (vus.has(j)) continue;
           vus.add(j);
-          for (const x of [pred[j], synchro[j]]) if (x !== undefined) pile.push(x);
+          for (const x of [pred[j], arriveeAvec[j], ...(attaches[j] || [])]) if (x !== undefined) pile.push(x);
         }
         return false;
       };
@@ -229,11 +277,11 @@
           if (t.type !== "passe") continue;
           const mvtLibre = autre((j) => estMouvement(j) && dist(debutDe(tr(j)), s) > PRES);
           const cible = plusProche(finDe(t), RECEPTION, mvtLibre);
-          if (cible !== undefined) { lier(synchro, i, cible); continue; }
+          if (cible !== undefined) { lier(arriveeAvec, i, cible); continue; }
           for (const j of idx) {
             if (!mvtLibre(j)) continue;
             const c = surLigne(finDe(tr(j)), s, finDe(t));
-            if (c && dist(c, finDe(t)) >= LOIN) { lier(synchro, i, j); if (synchro[i] === j) interceptions[i] = c; break; }
+            if (c && dist(c, finDe(t)) >= LOIN) { lier(arriveeAvec, i, j); if (arriveeAvec[i] === j) interceptions[i] = c; break; }
           }
         }
       }
@@ -241,7 +289,7 @@
       // Ordre de résolution : chaque unité après ses dépendances
       const ordre = [], faits = new Set();
       while (ordre.length < idx.length) {
-        const prets = idx.filter((i) => !faits.has(i) && [pred[i], synchro[i]].every((x) => x === undefined || faits.has(x)));
+        const prets = idx.filter((i) => !faits.has(i) && [pred[i], arriveeAvec[i], ...(attaches[i] || [])].every((x) => x === undefined || faits.has(x)));
         for (const i of prets.length ? prets : idx.filter((i) => !faits.has(i)).slice(0, 1)) { ordre.push(i); faits.add(i); }
       }
 
@@ -249,10 +297,12 @@
       for (const i of ordre) {
         const t = tr(i), src = unites[i].src, s = debutDe(t), p = pred[i] !== undefined ? res[pred[i]] : null;
         const pret = p ? p.t1 : debut;
+        // Synchronisation demandée : même départ et même arrivée que la référence
+        const cadre = attaches[i] ? [Math.min(...attaches[i].map((u) => res[u].t0)), Math.max(...attaches[i].map((u) => res[u].t1))] : null;
 
         if (MOUVEMENTS.has(t.type)) {
           const pts = O.lissage(t), L = longueurs(pts);
-          const duree = Math.max(DUREE_MIN, L[L.length - 1] / VITESSE[t.type]);
+          const duree = cadre ? Math.max(DUREE_MIN, cadre[1] - cadre[0]) : Math.max(DUREE_MIN, L[L.length - 1] / VITESSE[t.type]);
           let k = null;
           if (p && !p.mouvement) k = p.receveur ?? joueurPres(s, pret, RECEPTION);
           else if (p) k = p.joueur;
@@ -261,7 +311,7 @@
             if (k === null) k = joueurPres(s, debut, LOIN, partis);
             if (k !== null) partis.add(k);
           }
-          let t0 = pret;
+          let t0 = cadre ? cadre[0] : pret;
           if (k === null) {
             avertir("sans-joueur", src, `${nom(src)} : aucun joueur au départ (seul le trait se dessine)`);
             res[i] = { type: t.type, joueur: null, t0, t1: t0 + duree, mouvement: true };
@@ -273,7 +323,8 @@
             Object.assign(p.apres, { mode: "porte", joueur: k });
             p.vol.b = plus(posJoueur(k, p.t1), PORTEE);
           }
-          for (const m of mvts[k]) if (m.t1 > t0 && m.t0 < t0 + duree) t0 = m.t1; // un joueur ne fait qu'un trajet à la fois
+          // Un joueur ne fait qu'un trajet à la fois — sauf si la synchronisation impose le moment
+          if (!cadre) for (const m of mvts[k]) if (m.t1 > t0 && m.t0 < t0 + duree) t0 = m.t1;
           const depart = posJoueur(k, t0), ecart = [depart[0] - pts[0][0], depart[1] - pts[0][1]];
           if (dist(depart, pts[0]) > PRES) avertir("loin-du-depart", src, `${nom(src)} : le joueur le plus proche est à ${dist(depart, pts[0]).toFixed(0)} pi du départ`);
           const m = {
@@ -296,10 +347,11 @@
           else if (p) k = p.joueur;
           else k = joueurPres(s, debut, LOIN, new Set(joueurs.map((j, q) => q).filter((q) => !porteurs.includes(q)))) ?? joueurPres(s, debut, PRES);
           const cible = interceptions[i] || (t.type === "tir" ? O.pointsTrajet(t, joueurs).slice(-1)[0] : finDe(t));
-          const duree = Math.max(DUREE_MIN, dist(s, cible) / VITESSE[t.type]);
+          let duree = Math.max(DUREE_MIN, dist(s, cible) / VITESSE[t.type]);
           let t0 = pret, receveur = null;
-          const m = synchro[i] !== undefined ? res[synchro[i]] : null;
+          const m = arriveeAvec[i] !== undefined ? res[arriveeAvec[i]] : null;
           if (m && m.joueur !== null && m.joueur !== k) { t0 = Math.max(t0, m.t1 - duree); receveur = m.joueur; }
+          if (cadre) { t0 = cadre[0]; duree = Math.max(DUREE_MIN, cadre[1] - cadre[0]); }
           const t1 = t0 + duree;
           if (t.type === "passe" && receveur === null) receveur = joueurPres(cible, t1, RECEPTION, new Set(k === null ? [] : [k]));
           if (!r && k !== null) r = rondelleDe(k, t0);
@@ -422,6 +474,17 @@
       g, numero: String(d.trajets[+g.dataset.i].numero), cercle: g.querySelector("circle"), texte: g.querySelector("text"),
     }));
     for (const n of numeros) n.origine = [n.cercle.getAttribute("fill"), n.cercle.getAttribute("stroke"), n.texte.getAttribute("fill")];
+    // Étiquettes encadrées : visibles seulement pendant les étapes choisies
+    const numerosEtapes = plan.etapes.map((e) => e.numero);
+    const indexEtape = (v, defaut) => {
+      if (v === undefined || v === null || v === "") return defaut;
+      const i = numerosEtapes.indexOf(String(v));
+      return i < 0 ? defaut : i;
+    };
+    const etiquettes = [...glace.querySelectorAll(":scope > g.etiquette")].map((g) => {
+      const e = (d.etiquettes || [])[+g.dataset.i] || {};
+      return { g, de: indexEtape(e.de, 0), a: indexEtape(e.a, N - 1) };
+    });
     const disques = plan.rondelles.map(() => {
       const c = document.createElementNS(NS, "circle");
       for (const [a, v] of [["r", 0.8 * E], ["fill", "#0b0b0b"], ["stroke", "#fff"], ["stroke-width", 1.2]]) c.setAttribute(a, v);
@@ -452,6 +515,7 @@
         c.style.display = p ? "" : "none";
         if (p) { c.setAttribute("cx", (p[0] * E).toFixed(1)); c.setAttribute("cy", (p[1] * E).toFixed(1)); }
       });
+      for (const e of etiquettes) e.g.style.display = ev.etape >= e.de && ev.etape <= e.a ? "" : "none";
       const courant = plan.etapes[ev.etape].numero;
       for (const n of numeros) {
         const actif = n.numero === courant;
@@ -468,6 +532,7 @@
       for (const g of pions) g.removeAttribute("transform");
       for (const c of portees) c.style.display = "";
       for (const c of disques) c.style.display = "none";
+      for (const e of etiquettes) e.g.style.display = "";
       numeros.forEach((n) => { n.cercle.setAttribute("fill", n.origine[0]); n.cercle.setAttribute("stroke", n.origine[1]); n.texte.setAttribute("fill", n.origine[2]); });
       temps.value = 0;
       libelle.textContent = N > 1 ? `${N} étapes` : "1 étape";
@@ -519,7 +584,74 @@
     return { plan, jouer, pause, aller, statique, detruire: pause };
   }
 
-  const AnimationDiagramme = { planifier, evaluer, creer };
+  // ─── Export GIF (navigateur) ───
+  // Dessine l'animation image par image dans un canevas, puis encode le tout avec gif.js.
+  function imageDepuisSVG(texte) {
+    return new Promise((ok, non) => {
+      const img = new Image();
+      img.onload = () => ok(img);
+      img.onerror = () => non(new Error("le navigateur n'a pas pu dessiner le diagramme"));
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(texte);
+    });
+  }
+
+  async function gif(d, options = {}) {
+    const encodeur = racine.EncodeurGIF;
+    if (!encodeur) throw new Error("gif.js n'est pas chargé");
+    const { fps = 12, largeurMax = 1000, finPause = 1.2, progres = () => {} } = options;
+    const delai = Math.max(2, Math.round(100 / fps)); // centièmes de seconde (le pas réel du GIF)
+    const pas = delai / 100;
+
+    const hote = document.createElement("div");
+    hote.setAttribute("aria-hidden", "true");
+    hote.style.cssText = "position:fixed;left:-99999px;top:0;width:1400px;pointer-events:none";
+    document.body.append(hote);
+    const lecteur = creer(hote, d, { ...options, auto: false });
+    try {
+      const svg = hote.querySelector("svg");
+      const vue = svg.getAttribute("viewBox").split(" ").map(Number);
+      const echelle = Math.min(1, largeurMax / vue[2]);
+      const L = Math.max(1, Math.round(vue[2] * echelle)), H = Math.max(1, Math.round(vue[3] * echelle));
+      svg.setAttribute("width", L);
+      svg.setAttribute("height", H);
+      const canevas = document.createElement("canvas");
+      canevas.width = L; canevas.height = H;
+      const ctx = canevas.getContext("2d", { willReadFrequently: true });
+
+      const duree = lecteur.plan.duree;
+      const nb = Math.max(2, Math.round(duree / pas) + 1);
+      const rendre = async (T) => {
+        lecteur.aller(T);
+        ctx.drawImage(await imageDepuisSVG(new XMLSerializer().serializeToString(svg)), 0, 0, L, H);
+        return ctx.getImageData(0, 0, L, H).data;
+      };
+
+      // 1er passage : quelques images réparties sur l'animation donnent les couleurs de la palette
+      const temoins = [];
+      const nbTemoins = Math.min(nb, 6);
+      for (let i = 0; i < nbTemoins; i++) {
+        temoins.push(await rendre((i / Math.max(1, nbTemoins - 1)) * duree));
+        progres((i + 1) / (nbTemoins + nb) * 0.999);
+      }
+      const palette = encodeur.palette(temoins);
+      temoins.length = 0;
+
+      // 2e passage : chaque image est encodée tout de suite (une seule image en mémoire à la fois)
+      const enc = encodeur.debut({ largeur: L, hauteur: H, palette });
+      for (let i = 0; i < nb; i++) {
+        const T = Math.min(duree, i * pas);
+        enc.ajouter(await rendre(T), i === nb - 1 ? Math.round(finPause * 100) : delai);
+        progres((nbTemoins + i + 1) / (nbTemoins + nb) * 0.999);
+      }
+      progres(1);
+      return enc.finir();
+    } finally {
+      lecteur.detruire();
+      hote.remove();
+    }
+  }
+
+  const AnimationDiagramme = { planifier, evaluer, creer, gif };
   racine.AnimationDiagramme = AnimationDiagramme;
   if (typeof module !== "undefined") module.exports = AnimationDiagramme;
 })(typeof window !== "undefined" ? window : globalThis);
