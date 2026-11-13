@@ -20,6 +20,7 @@
 //   - « synchro » sur un trajet (réglé dans l'éditeur) le fait partir et finir exactement avec un autre
 //     trajet : il joue dans la même étape que lui, et sa durée devient celle de l'autre.
 //   - Une étiquette encadrée s'affiche pendant les étapes choisies (champs « de » et « a »), ou tout le temps.
+//   - Un trajet « avec rondelle » qui part là où un autre joueur a la rondelle la lui vole (mise en échec).
 //   - Un patin est coupé là où une passe d'une étape suivante part ou arrive en plein trajet (passes en mouvement).
 //   - Vitesses à 1× (pi/s) : patin 15, arrière 10, avec rondelle 13, passe 50, tir 80.
 
@@ -337,8 +338,13 @@
           // Rondelle : le joueur la ramasse (libre ou dans une pile) ; la suite d'un trajet coupé après une passe n'en crée pas
           if (t.type === "rondelle" && !rondelleDe(k, t0) && unites[i].rang === 0) {
             const libre = rondelleLibre(s, t0, LOIN);
-            if (!libre && !pilePres(s)) avertir("rondelle-creee", src, `${nom(src)} : le joueur n'a pas de rondelle (elle apparaît au départ)`);
-            ajouterPhase(libre || nouvelleRondelle(), { debut: t0, mode: "porte", joueur: k });
+            // Un autre joueur a la rondelle au départ : c'est un vol (mise en échec, bâton sur la rondelle)
+            const volee = libre ? null : rondelles.find((r) => {
+              const ph = phaseA(r, t0);
+              return ph && ph.mode === "porte" && ph.joueur !== k && dist(posJoueur(ph.joueur, t0), s) <= PRES;
+            });
+            if (!libre && !volee && !pilePres(s)) avertir("rondelle-creee", src, `${nom(src)} : le joueur n'a pas de rondelle (elle apparaît au départ)`);
+            ajouterPhase(libre || volee || nouvelleRondelle(), { debut: t0, mode: "porte", joueur: k });
           }
           res[i] = { type: t.type, joueur: k, t0, t1: t0 + duree, mouvement: true, arrivee: m.arrivee };
         } else {
